@@ -264,12 +264,15 @@ while run:
             wave_timer = 0
         
         for e in enemies:
-            e.logic(enemies)
+            e.logic(enemies, dt)
 
         for t in towers:
             projectile = t.update(enemies)
             if projectile:
-                projectiles.append(projectile)
+                if isinstance(projectile, list):
+                    projectiles.extend(projectile)
+                else:
+                    projectiles.append(projectile)
         
         projectiles_to_remove = []
         for p in projectiles:
@@ -285,9 +288,10 @@ while run:
         for e in enemies:
             if e.grid_pos() == GOAL_GRID:
                 lives -= 1
+                e.hp = 0
                 to_remove.append(e)
             elif e.hp <= 0:
-                money += e.reward
+                money += e.reward * 2
                 to_remove.append(e)
         for e in to_remove:
             if e in enemies:

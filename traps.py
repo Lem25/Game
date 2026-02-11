@@ -1,6 +1,6 @@
 import pygame
 from constants import TILE, FPS, TRAP_STATS
-from colors import BLACK, WHITE
+from colors import BLACK
 
 class Trap:
     def __init__(self, grid_pos, trap_type):

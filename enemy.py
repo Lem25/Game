@@ -44,6 +44,8 @@ class Enemy:
         self.heal_per_update = (0.05 * self.max_hp / FPS) if enemy_type == 'healer' else 0
         self.slow_stacks = 0
         self.slow_decay_rate = 0.3
+        self.frozen_time = 0.0
+        self.freeze_immunity_timer = 0.0
         
         self.repath()
 
@@ -56,8 +58,11 @@ class Enemy:
     def grid_pos(self):
         return (int(self.pos.x // TILE), int(self.pos.y // TILE))
 
-    def logic(self, enemies):
-        self.slow_stacks = max(0, self.slow_stacks - self.slow_decay_rate / FPS)
+    def logic(self, enemies, dt):
+        if self.freeze_immunity_timer > 0:
+            self.freeze_immunity_timer = max(0.0, self.freeze_immunity_timer - dt)
+
+        self.slow_stacks = max(0.0, self.slow_stacks - self.slow_decay_rate * dt)
         
         if not self.path or self.path_idx >= len(self.path):
             self.repath()
@@ -66,7 +71,15 @@ class Enemy:
                 return
 
         if self.slow_stacks >= 10:
+            if self.freeze_immunity_timer <= 0:
+                self.frozen_time += dt
+                if self.frozen_time >= 3.0:
+                    self.freeze_immunity_timer = 2.0
+                    self.frozen_time = 0.0
+                    self.slow_stacks = 0.0
             return
+        else:
+            self.frozen_time = 0.0
 
         target = pygame.Vector2(
             self.path[self.path_idx][0] * TILE + TILE // 2,
@@ -102,6 +115,8 @@ class Enemy:
         return True
 
     def add_slow(self, amount):
+        if self.freeze_immunity_timer > 0:
+            return
         self.slow_stacks = min(12, self.slow_stacks + amount)
 
     def draw(self, screen):

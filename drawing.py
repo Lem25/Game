@@ -1,6 +1,6 @@
 import pygame
 from constants import WIDTH, HEIGHT, TILE, GRID_W, GRID_H, GAME_HEIGHT
-from colors import BLACK, WHITE, LIGHT_GREEN, DARK_GREEN, GOLD, DARK_GRAY
+from colors import BLACK, WHITE, LIGHT_GREEN, DARK_GREEN, GOLD
 from assets import get as get_asset
 
 def draw_grid(screen, grid, goal_grid):
