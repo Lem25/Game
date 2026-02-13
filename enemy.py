@@ -27,25 +27,44 @@ class Enemy:
         stats = ENEMY_STATS[enemy_type]
         self.max_hp = int(stats['max_hp'] * scale)
         self.hp = self.max_hp
-        self.speed = (stats['speed'] * scale) / 1.5
-        self.resist_phys = stats.get('resist_phys', 0)
-        self.resist_magic = stats.get('resist_magic', 0)
+        self.base_speed = (stats['speed'] * scale) / 1.5
+        self.speed = self.base_speed
+        self.base_resist_phys = stats.get('resist_phys', 0)
+        self.base_resist_magic = stats.get('resist_magic', 0)
+        self.resist_phys = self.base_resist_phys
+        self.resist_magic = self.base_resist_magic
         base_size = stats.get('size', ENEMY_SIZE_SCALE.get(enemy_type, 6))
         self.size = base_size * 0.9 * (1.0 if scale <= 1.0 else (1.0 + (scale - 1.0) * 0.5))
         self.color = ENEMY_COLORS[enemy_type]
         self.reward = stats['reward']
         self.reward = int(self.reward * scale)
+        self.spawn_tile = spawn
+        self.lane_id = spawn
         self.pos = pygame.Vector2(spawn[0] * TILE + TILE // 2, spawn[1] * TILE + TILE // 2)
         self.goal = goal
         self.path = []
         self.path_idx = 0
-        self.dodge_chance = 0.10 if enemy_type == 'assassin' else 0.0
+        self.dodge_chance = 0.20 if enemy_type == 'assassin' else 0.0
         self.dodge_streak = 0
-        self.heal_per_update = (0.05 * self.max_hp / FPS) if enemy_type == 'healer' else 0
+        self.healer_chain_timer = 0.0
+        self.healer_chain_interval = 1.2
+        self.healer_chain_amount = 0.13 * self.max_hp
+        self.fighter_shield_used = False
+        self.shield_hp = 0.0
+        self.mage_blocks_left = 3 if enemy_type == 'mage' else 0
+        self.assassin_emergency_used = False
+        self.tank_bulwark_active = False
+        self.minotaur_phase2 = False
+        self.minotaur_stun_cooldown = 1.5
+        self.demon_phase1_done = False
+        self.demon_phase2_done = False
+        self.demon_phase3_done = False
         self.slow_stacks = 0
         self.slow_decay_rate = 0.3
         self.frozen_time = 0.0
         self.freeze_immunity_timer = 0.0
+        self.burning = False
+        self.impaled_time = 0.0
         
         self.repath()
 
@@ -58,11 +77,18 @@ class Enemy:
     def grid_pos(self):
         return (int(self.pos.x // TILE), int(self.pos.y // TILE))
 
-    def logic(self, enemies, dt):
+    def logic(self, enemies, dt, towers=None, spawn_points=None, goal_grid=None):
         if self.freeze_immunity_timer > 0:
             self.freeze_immunity_timer = max(0.0, self.freeze_immunity_timer - dt)
 
+        self._apply_health_behaviors(enemies)
+        self._apply_boss_behaviors(enemies, towers or [], spawn_points or [], goal_grid or self.goal, dt)
+
         self.slow_stacks = max(0.0, self.slow_stacks - self.slow_decay_rate * dt)
+
+        if self.impaled_time > 0:
+            self.impaled_time = max(0.0, self.impaled_time - dt)
+            return
         
         if not self.path or self.path_idx >= len(self.path):
             self.repath()
@@ -98,20 +124,161 @@ class Enemy:
 
         self.pos += direction * self.speed * slow_multiplier
 
-        if self.heal_per_update > 0:
-            heal_radius = 120
-            for other in enemies:
-                if other is not self and self.pos.distance_to(other.pos) < heal_radius:
-                    other.hp = min(other.max_hp, other.hp + self.heal_per_update)
+        if self.type == 'healer':
+            self.healer_chain_timer += dt
+            if self.healer_chain_timer >= self.healer_chain_interval:
+                self.healer_chain_timer = 0.0
+                self._chain_heal_lane(enemies)
 
-    def take_damage(self, incoming_dmg, dmg_type):
-        resist = self.resist_phys if dmg_type == 'physical' else self.resist_magic
-        actual_dmg = incoming_dmg * (1 - resist)
-        if random.random() < self.dodge_chance and self.type == 'assassin':
-            self.dodge_streak += 1
-            self.dodge_chance = max(0.01, 0.10 - 0.01 * self.dodge_streak)
+    def take_damage(self, incoming_dmg, dmg_type, source='generic', resist_override=None):
+        if self.type == 'mage' and source == 'projectile' and self.mage_blocks_left > 0:
+            self.mage_blocks_left -= 1
             return False
+
+        if self.type == 'assassin' and random.random() < self.dodge_chance:
+            self.dodge_streak += 1
+            self.dodge_chance = max(0.05, self.dodge_chance - 0.02)
+            return False
+
+        resist = resist_override
+        if resist is None:
+            resist = self.resist_phys if dmg_type == 'physical' else self.resist_magic
+
+        actual_dmg = max(0.0, incoming_dmg * (1 - resist))
+
+        if self.shield_hp > 0 and actual_dmg > 0:
+            absorbed = min(self.shield_hp, actual_dmg)
+            self.shield_hp -= absorbed
+            actual_dmg -= absorbed
+
         self.hp -= actual_dmg
+        return True
+
+    def _apply_health_behaviors(self, enemies):
+        if self.type == 'fighter' and not self.fighter_shield_used and self.hp <= self.max_hp * 0.5:
+            self.fighter_shield_used = True
+            self.shield_hp = self.max_hp * 0.30
+
+        if self.type == 'assassin' and not self.assassin_emergency_used and self.hp <= self.max_hp * 0.3:
+            self.assassin_emergency_used = True
+            healers = [e for e in enemies if e.type == 'healer' and e.hp > 0 and e is not self]
+            if healers:
+                nearest_healer = min(healers, key=lambda h: self.pos.distance_to(h.pos))
+                self.pos = nearest_healer.pos.copy()
+                self.repath()
+            else:
+                self.dodge_chance = max(self.dodge_chance, 0.50)
+                self.speed *= 1.2
+
+        if self.type == 'tank' and not self.tank_bulwark_active and self.hp <= self.max_hp * 0.3:
+            self.tank_bulwark_active = True
+            self.resist_phys = min(0.95, self.base_resist_phys * 2)
+            self.resist_magic = min(0.95, self.base_resist_magic * 2)
+
+        if self.type == 'minotaur_boss' and not self.minotaur_phase2 and self.hp <= self.max_hp * 0.3:
+            self.minotaur_phase2 = True
+            self.resist_phys = 0.0
+            self.resist_magic = 0.0
+            self.speed = self.base_speed * 3.5
+
+    def _apply_boss_behaviors(self, enemies, towers, spawn_points, goal_grid, dt):
+        if self.type == 'minotaur_boss' and not self.minotaur_phase2:
+            self.minotaur_stun_cooldown -= dt
+            if self.minotaur_stun_cooldown <= 0 and towers:
+                nearest_tower = min(towers, key=lambda t: self.pos.distance_to(t.pos))
+                if self.pos.distance_to(nearest_tower.pos) <= 170:
+                    current_stun = getattr(nearest_tower, 'stun_timer', 0.0)
+                    nearest_tower.stun_timer = max(current_stun, 2.5)
+                self.minotaur_stun_cooldown = 3.5
+
+        if self.type != 'demon_boss':
+            return
+
+        if not self.demon_phase1_done and len(spawn_points) >= 2 and towers:
+            self.demon_phase1_done = self._swap_lane_towers(towers, spawn_points)
+
+        if not self.demon_phase2_done and self.hp <= self.max_hp * 0.5:
+            self.demon_phase2_done = True
+            self._spawn_demon_minions(enemies)
+
+        if not self.demon_phase3_done and self.hp <= self.max_hp * 0.25:
+            if self._teleport_to_beneficial_point(goal_grid):
+                self.demon_phase3_done = True
+
+    def _chain_heal_lane(self, enemies):
+        lane_allies = [
+            e for e in enemies
+            if e is not self and e.hp > 0 and e.lane_id == self.lane_id and e.hp < e.max_hp
+        ]
+        lane_allies.sort(key=lambda e: (e.hp / max(1, e.max_hp), self.pos.distance_to(e.pos)))
+
+        for ally in lane_allies[:3]:
+            ally.hp = min(ally.max_hp, ally.hp + self.healer_chain_amount)
+
+    def _swap_lane_towers(self, towers, spawn_points):
+        lane_a, lane_b = random.sample(spawn_points, 2)
+
+        def lane_center(tile):
+            return pygame.Vector2(tile[0] * TILE + TILE // 2, tile[1] * TILE + TILE // 2)
+
+        center_a = lane_center(lane_a)
+        center_b = lane_center(lane_b)
+
+        def nearest_lane(tower):
+            dist_a = tower.pos.distance_to(center_a)
+            dist_b = tower.pos.distance_to(center_b)
+            return 'a' if dist_a <= dist_b else 'b'
+
+        towers_a = [t for t in towers if nearest_lane(t) == 'a']
+        towers_b = [t for t in towers if nearest_lane(t) == 'b']
+        if not towers_a or not towers_b:
+            return False
+
+        towers_a.sort(key=lambda t: t.pos.distance_to(center_a))
+        towers_b.sort(key=lambda t: t.pos.distance_to(center_b))
+        pairs = min(len(towers_a), len(towers_b))
+
+        for idx in range(pairs):
+            tower_a = towers_a[idx]
+            tower_b = towers_b[idx]
+            pos_a = tower_a.pos.copy()
+            tower_a.pos = tower_b.pos.copy()
+            tower_b.pos = pos_a
+            if hasattr(tower_a, 'grid_pos'):
+                tower_a.grid_pos = (int(tower_a.pos.x // TILE), int(tower_a.pos.y // TILE))
+            if hasattr(tower_b, 'grid_pos'):
+                tower_b.grid_pos = (int(tower_b.pos.x // TILE), int(tower_b.pos.y // TILE))
+        return True
+
+    def _spawn_demon_minions(self, enemies):
+        minion_types = ['fighter', 'fighter', 'assassin', 'mage']
+        summon_tile = self.grid_pos()
+        for minion_type in minion_types:
+            minion = Enemy(self.grid, summon_tile, self.goal, minion_type, scale=0.9)
+            minion.lane_id = self.lane_id
+            enemies.append(minion)
+
+    def _teleport_to_beneficial_point(self, goal_grid):
+        if not self.path or self.path_idx >= len(self.path):
+            self.repath()
+            if not self.path:
+                return False
+
+        current_remaining = len(self.path) - self.path_idx
+        candidates = []
+        for idx in range(self.path_idx + 3, len(self.path)):
+            tile = self.path[idx]
+            goal_dist = abs(tile[0] - goal_grid[0]) + abs(tile[1] - goal_grid[1])
+            remaining = len(self.path) - idx
+            if goal_dist >= 5 and remaining < current_remaining:
+                candidates.append((idx, tile))
+
+        if not candidates:
+            return False
+
+        teleport_idx, teleport_tile = random.choice(candidates[-max(1, len(candidates) // 2):])
+        self.pos = pygame.Vector2(teleport_tile[0] * TILE + TILE // 2, teleport_tile[1] * TILE + TILE // 2)
+        self.path_idx = teleport_idx
         return True
 
     def add_slow(self, amount):

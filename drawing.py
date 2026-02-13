@@ -1,5 +1,5 @@
 import pygame
-from constants import WIDTH, HEIGHT, TILE, GRID_W, GRID_H, GAME_HEIGHT
+from constants import WIDTH, HEIGHT, TILE, GRID_W, GRID_H, GAME_HEIGHT, TOWER_COSTS, TRAP_COSTS, SENTINEL_COST
 from colors import BLACK, WHITE, LIGHT_GREEN, DARK_GREEN, GOLD
 from assets import get as get_asset
 
@@ -67,26 +67,39 @@ def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_t
     stats_surf = font.render(stats_text, True, WHITE)
     screen.blit(stats_surf, (20, box_y + 10))
     
-    towers_header = font.render("TOWER TYPES:", True, (255, 255, 100))
+    towers_header = font.render("TOWERS:", True, (255, 255, 100))
     screen.blit(towers_header, (20, box_y + 35))
     
     physical_cost = tower_costs.get('physical', 50)
     magic_cost = tower_costs.get('magic', 60)
-    tower_types_line = f"[1] Physical ${physical_cost}  |  [2] Magic ${magic_cost}  |  [5] Ice ${tower_costs.get('ice', 70)}"
+    ice_cost = tower_costs.get('ice', 70)
+    sentinel_cost = tower_costs.get('sentinel', 80)
+    tower_types_line = f"[1] Archer Tower ${physical_cost}  |  [2] Magic ${magic_cost}  |  [3] Ice ${ice_cost}  |  [6] Sentinel ${sentinel_cost}"
     towers_surf = font.render(tower_types_line, True, WHITE)
     screen.blit(towers_surf, (20, box_y + 55))
     
-    selected_text = f"Selected: {placing_tower_type.upper()}"
+    selected_labels = {
+        'physical': 'ARCHER TOWER',
+        'magic': 'MAGIC',
+        'ice': 'ICE',
+        'fire': 'FIRE',
+        'spikes': 'SPIKES',
+        'sentinel': 'SENTINEL',
+    }
+    selected_text = f"Selected: {selected_labels.get(placing_tower_type, placing_tower_type.upper())}"
     selected_surf = font.render(selected_text, True, (100, 200, 255))
     screen.blit(selected_surf, (20, box_y + 75))
 
     traps_header = font.render("TRAPS:", True, (255, 200, 100))
-    screen.blit(traps_header, (420, box_y + 35))
+    screen.blit(traps_header, (520, box_y + 35))
     fire_cost = tower_costs.get('fire', None)
     spikes_cost = tower_costs.get('spikes', None)
-    trap_info = f"[3] Fire ${fire_cost if fire_cost is not None else 40}  |  [4] Spikes ${spikes_cost if spikes_cost is not None else 30}"
+    trap_info = f"[4] Fire ${fire_cost if fire_cost is not None else 40}  |  [5] Spikes ${spikes_cost if spikes_cost is not None else 30}"
     trap_surf = font.render(trap_info, True, WHITE)
-    screen.blit(trap_surf, (420, box_y + 55))
+    screen.blit(trap_surf, (520, box_y + 55))
+    
+    upgrade_hint = font.render("Select tower/trap/sentinel and press [Q] or [E] to upgrade", True, (180, 180, 180))
+    screen.blit(upgrade_hint, (20, box_y + 100))
 
 def draw_game_over(screen, font):
     go_text = font.render("GAME OVER! Press Ctrl+C to restart.", True, (255, 50, 50))
@@ -138,12 +151,16 @@ def draw_pause(screen, font):
     screen.blit(overlay, (0, 0))
     
     pause_text = font.render("PAUSED", True, (255, 255, 0))
-    pause_rect = pause_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 30))
+    pause_rect = pause_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 60))
     screen.blit(pause_text, pause_rect)
     
     resume_text = font.render("Press ESC to Resume", True, WHITE)
-    resume_rect = resume_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 30))
+    resume_rect = resume_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 20))
     screen.blit(resume_text, resume_rect)
+    
+    guide_text = font.render("Press [H] for Game Guide", True, (100, 255, 100))
+    guide_rect = guide_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 20))
+    screen.blit(guide_text, guide_rect)
 
 def draw_victory(screen, font):
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -165,3 +182,308 @@ def draw_victory(screen, font):
     screen.blit(exit_text, exit_rect)
     
     return play_again_rect, exit_rect
+
+def draw_guide(screen, font, page, scroll_offset=0):
+    """Draw the game guide overlay and return max scroll for current page."""
+    guide_width = 700
+    guide_height = 650
+    guide_x = (WIDTH - guide_width) // 2
+    guide_y = 75
+
+    guide_surf = pygame.Surface((guide_width, guide_height), pygame.SRCALPHA)
+    pygame.draw.rect(guide_surf, (20, 20, 40, 240), (0, 0, guide_width, guide_height))
+    pygame.draw.rect(guide_surf, (100, 150, 255, 200), (0, 0, guide_width, guide_height), 3)
+
+    max_scroll = 0
+
+    if page == 'menu':
+        title = font.render("GAME GUIDE", True, (255, 255, 100))
+        guide_surf.blit(title, (guide_width // 2 - 50, 20))
+
+        sections = [
+            "[1] Towers & Upgrades",
+            "[2] Traps & Sentinels",
+            "[3] Enemies & Bosses",
+            "[4] Game Mechanics",
+            "[5] Strategy Tips"
+        ]
+
+        y_offset = 80
+        for i, section in enumerate(sections):
+            text = font.render(section, True, (100, 255, 100))
+            guide_surf.blit(text, (50, y_offset + i * 40))
+    else:
+        page_items = [
+            ('towers', '1:Towers'),
+            ('traps', '2:Traps'),
+            ('enemies', '3:Enemies'),
+            ('mechanics', '4:Mechanics'),
+            ('strategy', '5:Strategy'),
+        ]
+
+        page_titles = {
+            'towers': "TOWERS & UPGRADES",
+            'traps': "TRAPS & DEFENSE",
+            'enemies': "ENEMIES & BOSSES",
+            'mechanics': "GAME MECHANICS",
+            'strategy': "STRATEGY TIPS",
+        }
+        title = font.render(page_titles.get(page, "GAME GUIDE"), True, (255, 255, 100))
+        guide_surf.blit(title, (20, 40))
+
+        page_font = pygame.font.SysFont("arial", 11)
+        padding_x = 8
+        item_height = 18
+        spacing = 6
+        current_x = 12
+        bar_y = 10
+        for key, label in page_items:
+            text_surf = page_font.render(label, True, WHITE)
+            item_width = text_surf.get_width() + padding_x * 2
+            is_active = (page == key)
+            if is_active:
+                bg_color = (100, 150, 255)
+                border_color = (200, 220, 255)
+                text_color = (255, 255, 255)
+            else:
+                bg_color = (40, 40, 60)
+                border_color = (90, 90, 120)
+                text_color = (190, 190, 210)
+
+            pygame.draw.rect(guide_surf, bg_color, (current_x, bar_y, item_width, item_height), border_radius=4)
+            pygame.draw.rect(guide_surf, border_color, (current_x, bar_y, item_width, item_height), 1, border_radius=4)
+            label_surf = page_font.render(label, True, text_color)
+            guide_surf.blit(label_surf, (current_x + padding_x, bar_y + 2))
+            current_x += item_width + spacing
+
+        content = []
+        line_height = 24
+        content_font = pygame.font.SysFont("arial", 13)
+
+        if page == 'towers':
+            content = [
+                "ARCHER TOWER - $60",
+                "  Path 1: Sniper ($120) -> Elite ($240)",
+                "    Sniper: +Range, +Damage | Elite: Ignores 50% armor",
+                "  Path 2: Volley ($110) -> Bounce ($220)",
+                "    Volley: 3 arrows | Bounce: Arrows bounce once",
+                "",
+                "MAGIC TOWER - $70",
+                "  Path 1: Bolt ($140) -> Arc ($280)",
+                "    Bolt: Chain to 2 enemies | Arc: Chain 3 + spread effects",
+                "  Path 2: Nova ($160) -> Vortex ($320)",
+                "    Nova: AoE damage | Vortex: Pull enemies + bigger AoE",
+                "",
+                "ICE TOWER - $80",
+                "  Path 1: Glacial ($130) -> Shatter ($260)",
+                "    Glacial: 2x freeze time | Shatter: +50% dmg to frozen",
+                "  Path 2: Blizzard ($150) -> Absolute Zero ($300)",
+                "    Blizzard: AoE slow | Absolute Zero: Freeze path segment",
+                "",
+                "SENTINEL TOWER - $90",
+                "  Auto-activates barrier when enemies approach (5s, 10s CD)",
+                "  Path 1: Barrier ($100) -> Reflect ($200)",
+                "    Barrier: 8s duration | Reflect: 3 DPS to blocked enemies",
+                "  Path 2: Pulse ($110) -> Overload ($220)",
+                "    Pulse: Repel enemies | Overload: Explode for 100 AoE"
+            ]
+            line_height = 24
+            content_font = pygame.font.SysFont("arial", 13)
+        elif page == 'traps':
+            content = [
+                "FIRE TRAP - $45 (Place on path)",
+                "  Continuous damage in 3x3 area, strongest at center",
+                "  Path 1: Inferno ($80) -> Phoenix ($180)",
+                "    Inferno: Bigger aura, +DPS | Phoenix: Revive on destroy",
+                "  Path 2: Oil Slick ($90) -> Detonate ($200)",
+                "    Oil Slick: Burn spreads | Detonate: Explode on kill (40 AoE)",
+                "",
+                "SPIKE TRAP - $35 (Place on path)",
+                "  Damages enemies on tile every 1 second",
+                "  Path 1: Barbed ($70) -> Impale ($160)",
+                "    Barbed: Bleed DoT (5 DPS) | Impale: Hold enemy 2s",
+                "  Path 2: Cluster ($80) -> Quake ($170)",
+                "    Cluster: Multi-traps | Quake: AoE on trigger",
+                "",
+                "TIP: Traps placed on enemy paths deal damage automatically!",
+                "Combine with towers for maximum efficiency."
+            ]
+            line_height = 30
+            content_font = font
+        elif page == 'enemies':
+            content = [
+                "REGULAR ENEMIES:",
+                "  Fighter - Physical reduction, gains 30% HP shield at 50% HP (once)",
+                "  Mage - Magic reduction, blocks first 3 projectiles",
+                "  Assassin - 20% dodge that falls on each dodge",
+                "    At 30% HP: teleports to nearest healer (once)",
+                "    If no healer: 50% dodge and +20% move speed",
+                "  Tank - Heavy all-around resist, doubles resist at 30% HP",
+                "  Healer - Neutral resist, chain-heals 13% HP to up to 3 lane allies",
+                "",
+                "BOSSES (Spawn every 5 waves):",
+                "  Minotaur Boss - Massive physical armor tank",
+                "    Phase 1: walks and periodically stuns towers",
+                "    Phase 2 (<30% HP): loses all resists, becomes extremely fast",
+                "  Demon Boss - Huge magic resist",
+                "    Phase 1: swaps towers between two lanes",
+                "    Phase 2 (~50% HP): spawns minions",
+                "    Phase 3 (~25% HP): teleports to beneficial path point (>=5 tiles from end)",
+                "",
+                "REWARDS:",
+                "  Kill any enemy: 1.5x their base reward",
+                "  Example: Tank ($24) gives $36 on kill",
+                "  Enemies scale with wave count for harder challenges",
+                "",
+                "ENEMY ABILITIES:",
+                "  - Projectiles are reduced by type resistances",
+                "  - Bosses use phase-based mechanics",
+                "  - All enemies gain HP scaling on higher waves"
+            ]
+            line_height = 26
+            content_font = pygame.font.SysFont("arial", 13)
+        elif page == 'mechanics':
+            content = [
+                "PLACING STRUCTURES:",
+                "  Towers: Place on floor tiles (light gray)",
+                "  Traps: Place on path tiles (dark gray)",
+                "  Sentinel: Place on floor tiles, auto-activates near enemies",
+                "",
+                "UPGRADES:",
+                "  Click any tower/trap, press [Q] for Path 1, [E] for Path 2",
+                "  Once you pick a path, you can't upgrade the other!",
+                "  Each path has 2 tiers with powerful abilities",
+                "",
+                "DAMAGE TYPES:",
+                "  Physical - Reduced by physical resistance",
+                "  Magic - Reduced by magic resistance",
+                "  Ice - Applies slow stacks, freezes at 10 stacks",
+                "",
+                "STATUS EFFECTS:",
+                "  Slow: Reduces movement speed (8% per stack)",
+                "  Frozen: Enemy can't move (10+ slow stacks for 3s)",
+                "  Bleed: Damage over time from Barbed spikes",
+                "  Burn: Fire damage spreads with Oil Slick upgrade",
+                "  Impale: Enemy held in place for 2 seconds"
+            ]
+            line_height = 24
+            content_font = pygame.font.SysFont("arial", 13)
+        elif page == 'strategy':
+            content = [
+                "  - Mix damage types to handle resistant enemies",
+                "  - Ice towers slow, letting others deal more damage",
+                "  - Place traps at choke points for max efficiency",
+                "  - Save money for upgrades - they're very powerful!",
+                "  - Sentinels block paths temporarily for emergency defense"
+            ]
+            line_height = 34
+            content_font = pygame.font.SysFont("arial", 15)
+
+        content_area = pygame.Rect(20, 80, guide_width - 40, guide_height - 130)
+        pygame.draw.rect(guide_surf, (30, 30, 55, 255), content_area)
+        pygame.draw.rect(guide_surf, (70, 90, 130, 255), content_area, 1)
+
+        content_total_height = max(0, len(content) * line_height)
+        max_scroll = max(0, content_total_height - content_area.height)
+        scroll_offset = max(0, min(scroll_offset, max_scroll))
+
+        clip_rect = guide_surf.get_clip()
+        guide_surf.set_clip(content_area)
+
+        y_offset = content_area.y - scroll_offset
+        for line in content:
+            if y_offset + line_height >= content_area.y and y_offset <= content_area.bottom:
+                if page == 'enemies':
+                    if line.endswith(":"):
+                        color = (255, 200, 100)
+                    elif line.startswith("  ") and "HP" in line:
+                        color = (150, 255, 150)
+                    else:
+                        color = WHITE
+                elif page in ('towers', 'traps'):
+                    color = (255, 200, 100) if line and not line.startswith(" ") else WHITE
+                elif page == 'strategy':
+                    color = (150, 255, 200)
+                else:
+                    color = (255, 200, 100) if line.endswith(":") else WHITE
+
+                text = content_font.render(line, True, color)
+                guide_surf.blit(text, (content_area.x, y_offset))
+            y_offset += line_height
+
+        guide_surf.set_clip(clip_rect)
+
+        if max_scroll > 0:
+            track_rect = pygame.Rect(content_area.right - 6, content_area.y + 4, 4, content_area.height - 8)
+            pygame.draw.rect(guide_surf, (60, 70, 90), track_rect, border_radius=2)
+
+            thumb_height = max(24, int(track_rect.height * (content_area.height / content_total_height)))
+            thumb_travel = track_rect.height - thumb_height
+            thumb_y = track_rect.y + int((scroll_offset / max_scroll) * thumb_travel)
+            thumb_rect = pygame.Rect(track_rect.x, thumb_y, track_rect.width, thumb_height)
+            pygame.draw.rect(guide_surf, (150, 180, 255), thumb_rect, border_radius=2)
+
+    tiny_font = pygame.font.SysFont("arial", 12)
+    if page == 'menu':
+        nav_text = tiny_font.render("[1-5] Select  |  [BACKSPACE] Close  |  [ESC] Resume", True, (180, 180, 180))
+    else:
+        nav_text = tiny_font.render("[Wheel/UP/DOWN] Scroll  |  [BACKSPACE] Menu  |  [ESC] Resume", True, (180, 180, 180))
+    nav_rect = nav_text.get_rect(bottomright=(guide_width - 12, guide_height - 10))
+    guide_surf.blit(nav_text, nav_rect)
+
+    screen.blit(guide_surf, (guide_x, guide_y))
+    return max_scroll
+def draw_upgrade_ui(screen, font, selected_structure, money):
+    """Draw upgrade options for selected tower/trap/sentinel"""
+    if not selected_structure:
+        return
+
+    panel_width = 250
+    panel_height = 180
+    panel_x = selected_structure.pos.x + 30
+    panel_y = selected_structure.pos.y - panel_height // 2
+
+    if panel_x + panel_width > WIDTH:
+        panel_x = selected_structure.pos.x - panel_width - 30
+    if panel_y < 0:
+        panel_y = 0
+    if panel_y + panel_height > GAME_HEIGHT:
+        panel_y = GAME_HEIGHT - panel_height
+
+    panel_surface = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+    pygame.draw.rect(panel_surface, (20, 20, 40, 230), (0, 0, panel_width, panel_height))
+    pygame.draw.rect(panel_surface, (100, 150, 255, 255), (0, 0, panel_width, panel_height), 2)
+
+    name_text = font.render(selected_structure.name, True, (255, 255, 100))
+    panel_surface.blit(name_text, (10, 10))
+
+    y_offset = 40
+
+    def draw_path(path_index, key_text, level):
+        nonlocal y_offset
+        upgrade_name, upgrade_cost = selected_structure.get_upgrade_info(path_index)
+        if upgrade_name:
+            can_afford = money >= upgrade_cost
+            color = (100, 255, 100) if can_afford else (150, 150, 150)
+            upgrade_text = font.render(f"[{key_text}] {upgrade_name} - ${upgrade_cost}", True, color)
+            panel_surface.blit(upgrade_text, (10, y_offset))
+            if level > 0:
+                level_text = font.render(f"  Level: {level}/2", True, (200, 200, 200))
+                panel_surface.blit(level_text, (15, y_offset + 20))
+            y_offset += 50
+        elif level >= 2:
+            maxed_text = font.render(f"Path {path_index}: MAXED", True, (255, 215, 0))
+            panel_surface.blit(maxed_text, (10, y_offset))
+
+    path1_level = getattr(selected_structure, 'path1_level', 0)
+    path2_level = getattr(selected_structure, 'path2_level', 0)
+
+    if path1_level > 0:
+        draw_path(1, 'Q', path1_level)
+    elif path2_level > 0:
+        draw_path(2, 'E', path2_level)
+    else:
+        draw_path(1, 'Q', path1_level)
+        draw_path(2, 'E', path2_level)
+    
+    screen.blit(panel_surface, (panel_x, panel_y))

@@ -5,7 +5,7 @@ import sys
 import pygame
 
 from colors import DARK_GRAY
-from constants import ENEMY_STATS, FPS, GRID_H, GRID_W, HEIGHT, TILE, TOWER_COSTS, TRAP_COSTS, WIDTH
+from constants import ENEMY_STATS, FPS, GRID_H, GRID_W, HEIGHT, TILE, TOWER_COSTS, TRAP_COSTS, WIDTH, SENTINEL_COST
 from drawing import (
     draw_boss_spawn_popup,
     draw_game_over,
@@ -14,11 +14,14 @@ from drawing import (
     draw_ui,
     draw_victory,
     draw_wave_selection_popup,
+    draw_upgrade_ui,
+    draw_guide,
 )
 from enemy import Enemy
 from maze import create_maze, expand_paths
 from tower import Tower
 from traps import Trap
+from sentinel import Sentinel
 
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -97,7 +100,7 @@ towers = []
 enemies = []
 traps = []
 projectiles = []
-money = 300
+money = 400
 lives = 25
 wave = 0
 wave_enemies_left = 0
@@ -109,6 +112,9 @@ enemy_scale = 1.0
 target_wave = get_wave_selection()
 boss_popup_counter = 0
 paused = False
+show_guide = False
+guide_page = 'menu'
+guide_scroll = 0
 game_won = False
 victory_play_again_rect = None
 victory_exit_rect = None
@@ -158,17 +164,67 @@ while run:
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 paused = not paused
+                if not paused:
+                    show_guide = False
+                    guide_page = 'menu'
+                    guide_scroll = 0
+            elif paused and not show_guide:
+                if event.key == pygame.K_h:
+                    show_guide = True
+                    guide_page = 'menu'
+                    guide_scroll = 0
+            elif paused and show_guide:
+                if event.key == pygame.K_1:
+                    guide_page = 'towers'
+                    guide_scroll = 0
+                elif event.key == pygame.K_2:
+                    guide_page = 'traps'
+                    guide_scroll = 0
+                elif event.key == pygame.K_3:
+                    guide_page = 'enemies'
+                    guide_scroll = 0
+                elif event.key == pygame.K_4:
+                    guide_page = 'mechanics'
+                    guide_scroll = 0
+                elif event.key == pygame.K_5:
+                    guide_page = 'strategy'
+                    guide_scroll = 0
+                elif event.key == pygame.K_BACKSPACE:
+                    if guide_page != 'menu':
+                        guide_page = 'menu'
+                        guide_scroll = 0
+                    else:
+                        show_guide = False
+                        guide_scroll = 0
+                elif event.key in (pygame.K_UP, pygame.K_w):
+                    guide_scroll = max(0, guide_scroll - 40)
+                elif event.key in (pygame.K_DOWN, pygame.K_s):
+                    guide_scroll += 40
             elif not paused:
                 if event.key == pygame.K_1:
                     placing_tower_type = 'physical'
                 elif event.key == pygame.K_2:
                     placing_tower_type = 'magic'
                 elif event.key == pygame.K_3:
-                    placing_tower_type = 'fire'
-                elif event.key == pygame.K_4:
-                    placing_tower_type = 'spikes'
-                elif event.key == pygame.K_5:
                     placing_tower_type = 'ice'
+                elif event.key == pygame.K_4:
+                    placing_tower_type = 'fire'
+                elif event.key == pygame.K_5:
+                    placing_tower_type = 'spikes'
+                elif event.key == pygame.K_6:
+                    placing_tower_type = 'sentinel'
+                elif event.key == pygame.K_q:
+                    if selected_tower:
+                        upgrade_name, upgrade_cost = selected_tower.get_upgrade_info(1)
+                        if upgrade_name and money >= upgrade_cost and selected_tower.can_upgrade(1):
+                            if selected_tower.upgrade(1):
+                                money -= upgrade_cost
+                elif event.key == pygame.K_e:
+                    if selected_tower:
+                        upgrade_name, upgrade_cost = selected_tower.get_upgrade_info(2)
+                        if upgrade_name and money >= upgrade_cost and selected_tower.can_upgrade(2):
+                            if selected_tower.upgrade(2):
+                                money -= upgrade_cost
         elif event.type == pygame.MOUSEBUTTONDOWN:
             mx, my = pygame.mouse.get_pos()
             gx, gy = mx // TILE, my // TILE
@@ -189,6 +245,11 @@ while run:
                     tower_pos = pygame.Vector2(gx * TILE + TILE // 2, gy * TILE + TILE // 2)
                     towers.append(Tower(tower_pos, placing_tower_type))
                     money -= cost
+            elif not game_won and placing_tower_type == 'sentinel' and can_place_tower(grid, gx, gy, towers):
+                if money >= SENTINEL_COST:
+                    tower_pos = pygame.Vector2(gx * TILE + TILE // 2, gy * TILE + TILE // 2)
+                    towers.append(Sentinel(tower_pos))
+                    money -= SENTINEL_COST
             elif not game_won and placing_tower_type in ['fire', 'spikes']:
                 if can_place_trap(grid, gx, gy, towers, traps):
                     cost = TRAP_COSTS.get(placing_tower_type, 0)
@@ -201,6 +262,14 @@ while run:
                 if math.hypot(t.pos.x - mx, t.pos.y - my) < t.size * 1.2:
                     selected_tower = t
                     break
+            if not selected_tower:
+                for tr in traps:
+                    if math.hypot(tr.pos.x - mx, tr.pos.y - my) < TILE:
+                        selected_tower = tr
+                        break
+        elif event.type == pygame.MOUSEWHEEL:
+            if paused and show_guide and guide_page != 'menu':
+                guide_scroll = max(0, guide_scroll - event.y * 30)
 
     if paused:
         for t in towers:
@@ -215,9 +284,18 @@ while run:
         for e in enemies:
             e.draw(screen)
         
-        combined_costs = {**TOWER_COSTS, **TRAP_COSTS}
+        combined_costs = {**TOWER_COSTS, **TRAP_COSTS, 'sentinel': SENTINEL_COST}
         draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_type, tower_costs=combined_costs)
-        draw_pause(screen, font)
+        
+        if show_guide:
+            max_scroll = draw_guide(screen, font, guide_page, guide_scroll)
+            if guide_scroll > max_scroll:
+                guide_scroll = max_scroll
+        else:
+            draw_pause(screen, font)
+        
+        if selected_tower and not show_guide:
+            draw_upgrade_ui(screen, font, selected_tower, money)
         pygame.display.flip()
         continue
 
@@ -264,10 +342,16 @@ while run:
             wave_timer = 0
         
         for e in enemies:
-            e.logic(enemies, dt)
+            e.logic(enemies, dt, towers=towers, spawn_points=spawn_points, goal_grid=GOAL_GRID)
 
         for t in towers:
-            projectile = t.update(enemies)
+            if getattr(t, 'stun_timer', 0.0) > 0:
+                t.stun_timer = max(0.0, t.stun_timer - dt)
+                continue
+            try:
+                projectile = t.update(enemies, dt)
+            except TypeError:
+                projectile = t.update(enemies)
             if projectile:
                 if isinstance(projectile, list):
                     projectiles.extend(projectile)
@@ -276,7 +360,7 @@ while run:
         
         projectiles_to_remove = []
         for p in projectiles:
-            if not p.update(dt):
+            if not p.update(dt, enemies):
                 projectiles_to_remove.append(p)
         for p in projectiles_to_remove:
             projectiles.remove(p)
@@ -291,7 +375,7 @@ while run:
                 e.hp = 0
                 to_remove.append(e)
             elif e.hp <= 0:
-                money += e.reward * 2
+                money += int(e.reward * 1.5)
                 to_remove.append(e)
         for e in to_remove:
             if e in enemies:
@@ -315,8 +399,11 @@ while run:
         draw_boss_spawn_popup(screen, font, boss_type)
         boss_popup_counter -= 1
     
-    combined_costs = {**TOWER_COSTS, **TRAP_COSTS}
+    combined_costs = {**TOWER_COSTS, **TRAP_COSTS, 'sentinel': SENTINEL_COST}
     draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_type, tower_costs=combined_costs)
+    
+    if selected_tower:
+        draw_upgrade_ui(screen, font, selected_tower, money)
 
     if lives <= 0:
         draw_game_over(screen, font)

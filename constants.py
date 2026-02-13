@@ -4,16 +4,20 @@ GRID_W, GRID_H = 40, 40
 GAME_HEIGHT = 800
 FPS = 60
 
-TOWER_COSTS = {'physical': 50, 'magic': 60, 'ice': 70}
+TOWER_COSTS = {'physical': 60, 'magic': 70, 'ice': 80}
+
+TRAP_COSTS = {'fire': 45, 'spikes': 35}
+
+SENTINEL_COST = 90
 
 ENEMY_STATS = {
-    'tank': {'max_hp': 210, 'speed': 0.7, 'resist_phys': 0.12, 'resist_magic': 0.12, 'size': 20, 'reward': 18},
-    'fighter': {'max_hp': 80, 'speed': 1.4, 'resist_phys': 0.1, 'resist_magic': 0.0, 'size': 14, 'reward': 6},
-    'mage': {'max_hp': 60, 'speed': 1.1, 'resist_phys': 0.0, 'resist_magic': 0.1, 'size': 12, 'reward': 8},
-    'assassin': {'max_hp': 40, 'speed': 2.2, 'resist_phys': 0.0, 'resist_magic': 0.0, 'size': 10, 'reward': 10},
-    'healer': {'max_hp': 70, 'speed': 1.0, 'resist_phys': 0.05, 'resist_magic': 0.05, 'size': 13, 'reward': 12},
-    'minotaur_boss': {'max_hp': 420, 'speed': 0.7, 'resist_phys': 0.22, 'resist_magic': 0.12, 'size': 28, 'reward': 130},
-    'demon_boss': {'max_hp': 820, 'speed': 0.5, 'resist_phys': 0.26, 'resist_magic': 0.3, 'size': 40, 'reward': 260},
+    'tank': {'max_hp': 230, 'speed': 0.65, 'resist_phys': 0.30, 'resist_magic': 0.30, 'size': 20, 'reward': 24},
+    'fighter': {'max_hp': 95, 'speed': 1.35, 'resist_phys': 0.35, 'resist_magic': 0.00, 'size': 14, 'reward': 10},
+    'mage': {'max_hp': 70, 'speed': 1.05, 'resist_phys': 0.00, 'resist_magic': 0.55, 'size': 12, 'reward': 12},
+    'assassin': {'max_hp': 55, 'speed': 2.3, 'resist_phys': 0.00, 'resist_magic': 0.00, 'size': 10, 'reward': 14},
+    'healer': {'max_hp': 85, 'speed': 0.95, 'resist_phys': 0.15, 'resist_magic': 0.15, 'size': 13, 'reward': 16},
+    'minotaur_boss': {'max_hp': 520, 'speed': 0.6, 'resist_phys': 0.75, 'resist_magic': 0.25, 'size': 28, 'reward': 220},
+    'demon_boss': {'max_hp': 920, 'speed': 0.55, 'resist_phys': 0.16, 'resist_magic': 0.80, 'size': 40, 'reward': 380},
 }
 TRAP_COSTS = {'fire': 40, 'spikes': 30}
 
