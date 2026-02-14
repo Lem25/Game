@@ -1,8 +1,10 @@
 import pygame
 import random
+import math
 from constants import TILE, ENEMY_STATS, FPS
 from colors import ENEMY_COLORS
 from pathfinding import astar
+from status_effects import StatusEffect
 try:
     from assets import get as get_asset
 except Exception:
@@ -11,14 +13,23 @@ except Exception:
 ENEMY_SIZE_SCALE = {
     'tank': 6,
     'fighter': 4,
+    'swarm': 2.5,
     'mage': 3.5,
+    'disruptor': 4,
     'assassin': 3,
     'healer': 3.5,
-    'mini_boss': 8,
-    'boss': 12,
     'minotaur_boss': 9,
     'demon_boss': 12,
 }
+
+_PATH_CACHE = {}
+_PATH_CACHE_VERSION = 0
+
+
+def invalidate_path_cache():
+    global _PATH_CACHE_VERSION
+    _PATH_CACHE_VERSION += 1
+    _PATH_CACHE.clear()
 
 class Enemy:
     def __init__(self, grid, spawn, goal, enemy_type, scale=1.0):
@@ -56,20 +67,68 @@ class Enemy:
         self.tank_bulwark_active = False
         self.minotaur_phase2 = False
         self.minotaur_stun_cooldown = 1.5
+        self.disruptor_cooldown = 0.8 if enemy_type == 'disruptor' else 0.0
+        self.disruptor_disable_duration = 1.5
+        self.disruptor_range = 120
         self.demon_phase1_done = False
         self.demon_phase2_done = False
         self.demon_phase3_done = False
-        self.slow_stacks = 0
+        self.slow_stacks = 0.0
         self.slow_decay_rate = 0.3
         self.frozen_time = 0.0
         self.freeze_immunity_timer = 0.0
         self.burning = False
+        self.status_effects = {}
         self.impaled_time = 0.0
         
         self.repath()
 
+    def _set_status(self, effect_type, duration, strength=0.0, stack_strength=True):
+        existing = self.status_effects.get(effect_type)
+        if existing and existing.active:
+            existing.duration = max(existing.duration, duration)
+            if stack_strength:
+                existing.strength += strength
+            else:
+                existing.strength = max(existing.strength, strength)
+        else:
+            self.status_effects[effect_type] = StatusEffect(effect_type, duration, strength)
+
+    def add_status(self, effect_type, duration, strength=0.0):
+        self._set_status(effect_type, duration, strength, stack_strength=True)
+
+    def has_status(self, effect_type):
+        effect = self.status_effects.get(effect_type)
+        return bool(effect and effect.active)
+
+    def _update_status_effects(self, dt):
+        for effect in list(self.status_effects.values()):
+            effect.tick(dt)
+            if effect.type == 'slow' and effect.strength > 0:
+                effect.strength = max(0.0, effect.strength - self.slow_decay_rate * dt)
+            if not effect.active:
+                del self.status_effects[effect.type]
+
+        slow_effect = self.status_effects.get('slow')
+        self.slow_stacks = slow_effect.strength if slow_effect else 0.0
+
+        impale = self.status_effects.get('impale')
+        self.impaled_time = impale.duration if impale and impale.active else 0.0
+
+        burn = self.status_effects.get('burn')
+        self.burning = bool(burn and burn.active)
+
+        if self.burning:
+            self.take_damage(3.5 * dt, 'magic', source='trap')
+
     def repath(self):
-        self.path = astar(self.grid, self.grid_pos(), self.goal)
+        start = self.grid_pos()
+        cache_key = (_PATH_CACHE_VERSION, id(self.grid), start, self.goal)
+        cached = _PATH_CACHE.get(cache_key)
+        if cached is None:
+            cached = astar(self.grid, start, self.goal)
+            _PATH_CACHE[cache_key] = list(cached)
+        self.path = list(cached)
         if self.path and len(self.path) > 1:
             self.path = self.path[1:]
         self.path_idx = 0
@@ -81,13 +140,12 @@ class Enemy:
         if self.freeze_immunity_timer > 0:
             self.freeze_immunity_timer = max(0.0, self.freeze_immunity_timer - dt)
 
+        self._update_status_effects(dt)
+
         self._apply_health_behaviors(enemies)
         self._apply_boss_behaviors(enemies, towers or [], spawn_points or [], goal_grid or self.goal, dt)
 
-        self.slow_stacks = max(0.0, self.slow_stacks - self.slow_decay_rate * dt)
-
         if self.impaled_time > 0:
-            self.impaled_time = max(0.0, self.impaled_time - dt)
             return
         
         if not self.path or self.path_idx >= len(self.path):
@@ -96,16 +154,16 @@ class Enemy:
                 self.hp = 0
                 return
 
-        if self.slow_stacks >= 10:
-            if self.freeze_immunity_timer <= 0:
-                self.frozen_time += dt
-                if self.frozen_time >= 3.0:
-                    self.freeze_immunity_timer = 2.0
-                    self.frozen_time = 0.0
-                    self.slow_stacks = 0.0
+        if self.has_status('frozen'):
             return
-        else:
-            self.frozen_time = 0.0
+
+        if self.slow_stacks >= 10 and self.freeze_immunity_timer <= 0:
+            self.status_effects['frozen'] = StatusEffect('frozen', 1.5, 1.0)
+            self.freeze_immunity_timer = 2.0
+            if 'slow' in self.status_effects:
+                del self.status_effects['slow']
+            self.slow_stacks = 0.0
+            return
 
         target = pygame.Vector2(
             self.path[self.path_idx][0] * TILE + TILE // 2,
@@ -121,14 +179,26 @@ class Enemy:
 
         direction = diff.normalize()
         slow_multiplier = max(0.1, 1.0 - (self.slow_stacks * 0.08))
-
-        self.pos += direction * self.speed * slow_multiplier
+        step = self.speed * slow_multiplier * dt * FPS
+        self.pos += direction * step
 
         if self.type == 'healer':
             self.healer_chain_timer += dt
             if self.healer_chain_timer >= self.healer_chain_interval:
                 self.healer_chain_timer = 0.0
                 self._chain_heal_lane(enemies)
+
+        if self.type == 'disruptor':
+            self.disruptor_cooldown -= dt
+            if self.disruptor_cooldown <= 0 and towers:
+                nearby_towers = [tower for tower in towers if self.pos.distance_to(tower.pos) <= self.disruptor_range]
+                if nearby_towers:
+                    target_tower = min(nearby_towers, key=lambda tower: self.pos.distance_to(tower.pos))
+                    current_stun = getattr(target_tower, 'stun_timer', 0.0)
+                    target_tower.stun_timer = max(current_stun, self.disruptor_disable_duration)
+                    self.disruptor_cooldown = 2.8
+                else:
+                    self.disruptor_cooldown = 0.4
 
     def take_damage(self, incoming_dmg, dmg_type, source='generic', resist_override=None):
         if self.type == 'mage' and source == 'projectile' and self.mage_blocks_left > 0:
@@ -284,7 +354,16 @@ class Enemy:
     def add_slow(self, amount):
         if self.freeze_immunity_timer > 0:
             return
-        self.slow_stacks = min(12, self.slow_stacks + amount)
+        self._set_status('slow', 5.0, amount, stack_strength=True)
+        slow_effect = self.status_effects.get('slow')
+        if slow_effect:
+            slow_effect.strength = min(12.0, slow_effect.strength)
+
+    def apply_impale(self, duration):
+        self._set_status('impale', duration, 0.0, stack_strength=False)
+
+    def apply_burn(self, duration=2.5, strength=1.0):
+        self._set_status('burn', duration, strength, stack_strength=False)
 
     def draw(self, screen):
         sprite = None
@@ -296,18 +375,46 @@ class Enemy:
         else:
             pygame.draw.circle(screen, self.color, (int(self.pos.x), int(self.pos.y)), int(self.size))
 
-        if self.slow_stacks >= 10:
+        is_frozen = self.has_status('frozen')
+
+        if is_frozen or self.slow_stacks >= 10:
             outline_color = (100, 200, 255)
             outline_width = 3
             pygame.draw.circle(screen, outline_color, (int(self.pos.x), int(self.pos.y)), int(self.size) + outline_width, outline_width)
+            tint = pygame.Surface((int(self.size * 2.4), int(self.size * 2.4)), pygame.SRCALPHA)
+            pygame.draw.circle(tint, (120, 210, 255, 80), (tint.get_width() // 2, tint.get_height() // 2), int(self.size * 1.1))
+            screen.blit(tint, (self.pos.x - tint.get_width() / 2, self.pos.y - tint.get_height() / 2))
+
+            crack_len = int(self.size)
+            center = (int(self.pos.x), int(self.pos.y))
+            pygame.draw.line(screen, (220, 245, 255), (center[0] - crack_len, center[1]), (center[0] + crack_len, center[1]), 1)
+            pygame.draw.line(screen, (220, 245, 255), (center[0], center[1] - crack_len), (center[0], center[1] + crack_len), 1)
+            pygame.draw.line(screen, (180, 230, 255), (center[0] - crack_len // 2, center[1] - crack_len // 2), (center[0] + crack_len // 2, center[1] + crack_len // 2), 1)
         elif self.slow_stacks > 0:
             slow_intensity = int(100 + (self.slow_stacks / 10) * 70)
             outline_color = (100, slow_intensity, 255)
             outline_width = max(1, int(self.slow_stacks / 5))
             pygame.draw.circle(screen, outline_color, (int(self.pos.x), int(self.pos.y)), int(self.size) + outline_width, outline_width)
 
+            particle_count = min(6, int(self.slow_stacks // 2) + 1)
+            for idx in range(particle_count):
+                angle = (idx / max(1, particle_count)) * 6.283
+                offset_x = int((self.size + 4) * 0.8 * math.cos(angle))
+                offset_y = int((self.size + 4) * 0.8 * math.sin(angle))
+                pygame.draw.circle(screen, (140, 220, 255), (int(self.pos.x) + offset_x, int(self.pos.y) + offset_y), 2)
+
         bar_w, bar_h = 12, 2
         fill_w = max(0, (self.hp / self.max_hp) * bar_w)
         pygame.draw.rect(screen, (0, 0, 0), (int(self.pos.x - 6), int(self.pos.y - 10), bar_w, bar_h))
         pygame.draw.rect(screen, (255, 50, 50), (int(self.pos.x - 6), int(self.pos.y - 10), bar_w, bar_h))
         pygame.draw.rect(screen, (50, 255, 50), (int(self.pos.x - 6), int(self.pos.y - 10), fill_w, bar_h))
+
+        if self.slow_stacks > 0 or is_frozen:
+            meter_w, meter_h = 12, 2
+            meter_fill = meter_w if is_frozen else max(0, min(meter_w, (self.slow_stacks / 10.0) * meter_w))
+            meter_x = int(self.pos.x - 6)
+            meter_y = int(self.pos.y - 14)
+            pygame.draw.rect(screen, (20, 30, 45), (meter_x, meter_y, meter_w, meter_h))
+            pygame.draw.rect(screen, (120, 210, 255), (meter_x, meter_y, meter_fill, meter_h))
+            if is_frozen or self.slow_stacks >= 10:
+                pygame.draw.circle(screen, (190, 240, 255), (meter_x - 3, meter_y + 1), 2)

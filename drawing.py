@@ -48,7 +48,7 @@ def draw_grid(screen, grid, goal_grid):
         pygame.draw.circle(screen, GOLD, (tx, ty), TILE)
         pygame.draw.circle(screen, BLACK, (tx, ty), TILE, 2)
 
-def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_type, tower_costs=None):
+def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_type, tower_costs=None, game_speed=1, selected_structure=None):
     if tower_costs is None:
         tower_costs = {}
     
@@ -62,8 +62,8 @@ def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_t
     pygame.draw.rect(ui_surface, (255, 255, 255, 150), (0, 0, box_width, box_height), 2)
     screen.blit(ui_surface, (box_x, box_y))
     
-    boss_indicator = "BOSS" if wave in [5, 10] else ""
-    stats_text = f"Money: ${money}  |  Lives: {lives}  |  Wave: {wave}  |  Enemies: {wave_enemies_left}  |  {boss_indicator}"
+    boss_indicator = "BOSS" if wave % 5 == 0 else ""
+    stats_text = f"Money: ${money}  |  Lives: {lives}  |  Wave: {wave}  |  Enemies: {wave_enemies_left}  |  Speed: {game_speed}x  |  {boss_indicator}"
     stats_surf = font.render(stats_text, True, WHITE)
     screen.blit(stats_surf, (20, box_y + 10))
     
@@ -98,8 +98,19 @@ def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_t
     trap_surf = font.render(trap_info, True, WHITE)
     screen.blit(trap_surf, (520, box_y + 55))
     
-    upgrade_hint = font.render("Select tower/trap/sentinel and press [Q] or [E] to upgrade", True, (180, 180, 180))
+    upgrade_hint = font.render("Select structure: [Q]/[E] upgrade, [R] sell, click targeting, [C] speed", True, (180, 180, 180))
     screen.blit(upgrade_hint, (20, box_y + 100))
+
+    if selected_structure and hasattr(selected_structure, 'targeting_mode'):
+        label_map = {
+            'first': 'First',
+            'last': 'Last',
+            'strongest': 'Strongest',
+            'weakest': 'Weakest',
+            'closest_goal': 'Closest Goal',
+        }
+        mode_text = font.render(f"Targeting: {label_map.get(selected_structure.targeting_mode, selected_structure.targeting_mode)}", True, (150, 220, 255))
+        screen.blit(mode_text, (520, box_y + 75))
 
 def draw_game_over(screen, font):
     go_text = font.render("GAME OVER! Press Ctrl+C to restart.", True, (255, 50, 50))
@@ -436,10 +447,10 @@ def draw_guide(screen, font, page, scroll_offset=0):
 def draw_upgrade_ui(screen, font, selected_structure, money):
     """Draw upgrade options for selected tower/trap/sentinel"""
     if not selected_structure:
-        return
+        return {'targeting_modes': {}, 'sell_rect': None}
 
     panel_width = 250
-    panel_height = 180
+    panel_height = 250 if hasattr(selected_structure, 'targeting_mode') else 210
     panel_x = selected_structure.pos.x + 30
     panel_y = selected_structure.pos.y - panel_height // 2
 
@@ -485,5 +496,49 @@ def draw_upgrade_ui(screen, font, selected_structure, money):
     else:
         draw_path(1, 'Q', path1_level)
         draw_path(2, 'E', path2_level)
+
+    targeting_mode_rects = {}
+    if hasattr(selected_structure, 'targeting_mode'):
+        label_map = {
+            'first': 'First',
+            'last': 'Last',
+            'strongest': 'Strong',
+            'weakest': 'Weak',
+            'closest_goal': 'Goal',
+        }
+        modes = ['first', 'last', 'strongest', 'weakest', 'closest_goal']
+        title = font.render('Targeting:', True, (180, 220, 255))
+        panel_surface.blit(title, (10, 150))
+
+        btn_y = 172
+        btn_w = 44
+        btn_h = 22
+        spacing = 4
+        for idx, mode in enumerate(modes):
+            x = 10 + idx * (btn_w + spacing)
+            rect = pygame.Rect(x, btn_y, btn_w, btn_h)
+            is_active = selected_structure.targeting_mode == mode
+            bg = (90, 150, 240) if is_active else (50, 60, 90)
+            border = (180, 220, 255) if is_active else (120, 130, 160)
+            pygame.draw.rect(panel_surface, bg, rect, border_radius=4)
+            pygame.draw.rect(panel_surface, border, rect, 1, border_radius=4)
+
+            label = font.render(label_map[mode], True, (255, 255, 255))
+            label_rect = label.get_rect(center=rect.center)
+            panel_surface.blit(label, label_rect)
+            targeting_mode_rects[mode] = pygame.Rect(panel_x + rect.x, panel_y + rect.y, rect.w, rect.h)
+
+    build_cost = getattr(selected_structure, 'build_cost', 0)
+    upgrade_spent = getattr(selected_structure, 'upgrade_spent', 0)
+    sell_value = int((build_cost + upgrade_spent) * 0.75)
+    sell_btn_rect = pygame.Rect(10, panel_height - 34, panel_width - 20, 24)
+    pygame.draw.rect(panel_surface, (70, 120, 80), sell_btn_rect, border_radius=4)
+    pygame.draw.rect(panel_surface, (120, 190, 130), sell_btn_rect, 1, border_radius=4)
+    sell_text = font.render(f"Sell: ${sell_value}", True, (255, 255, 255))
+    panel_surface.blit(sell_text, sell_text.get_rect(center=sell_btn_rect.center))
     
     screen.blit(panel_surface, (panel_x, panel_y))
+    return {
+        'targeting_modes': targeting_mode_rects,
+        'sell_rect': pygame.Rect(panel_x + sell_btn_rect.x, panel_y + sell_btn_rect.y, sell_btn_rect.w, sell_btn_rect.h),
+    }

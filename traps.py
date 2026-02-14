@@ -111,21 +111,23 @@ class Trap:
 
             if distance == 0:
                 self._apply_damage(enemy, per_tick, 'magic', 'trap')
-                if self.burn_spread and hasattr(enemy, 'burning'):
-                    enemy.burning = True
+                if self.burn_spread and hasattr(enemy, 'apply_burn'):
+                    enemy.apply_burn(2.5, 1.0)
             elif distance == 1:
                 self._apply_damage(enemy, per_tick * 0.5, 'magic', 'trap')
-                if self.burn_spread and hasattr(enemy, 'burning'):
-                    enemy.burning = True
+                if self.burn_spread and hasattr(enemy, 'apply_burn'):
+                    enemy.apply_burn(2.0, 0.7)
             elif distance == 2:
                 self._apply_damage(enemy, per_tick * 0.25, 'magic', 'trap')
             elif distance <= self.aura_radius:
                 self._apply_damage(enemy, per_tick * 0.15, 'magic', 'trap')
 
-            if self.burn_spread and hasattr(enemy, 'burning') and enemy.burning:
+            if self.burn_spread and getattr(enemy, 'burning', False):
                 for other in enemies:
                     if other != enemy and enemy.pos.distance_to(other.pos) < 40:
                         self._apply_damage(other, per_tick * 0.2, 'magic', 'trap')
+                        if hasattr(other, 'apply_burn'):
+                            other.apply_burn(1.5, 0.5)
 
     def _update_spikes_bleed(self, enemies, dt):
         if not self.bleed_enabled:
@@ -145,8 +147,11 @@ class Trap:
             if self.bleed_enabled:
                 self.enemies_with_bleed.add(id(enemy))
 
-            if self.impale_enabled and hasattr(enemy, 'impaled_time'):
-                enemy.impaled_time = 2.0
+            if self.impale_enabled:
+                if hasattr(enemy, 'apply_impale'):
+                    enemy.apply_impale(2.0)
+                elif hasattr(enemy, 'impaled_time'):
+                    enemy.impaled_time = 2.0
 
             if enemy.hp <= 0 and initial_hp > 0 and self.explode_on_kill:
                 for other in enemies:
@@ -169,8 +174,7 @@ class Trap:
                 if distance == 1:
                     self._apply_damage(enemy, self.damage * 0.3, 'physical', 'trap')
 
-    def update(self, enemies):
-        dt = 1.0 / FPS
+    def update(self, enemies, dt=1.0 / FPS):
         self.timer += dt
 
         if self.trap_type == 'fire':

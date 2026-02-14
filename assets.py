@@ -8,6 +8,7 @@ _raw = {}
 _FALLBACK_NAMES = {
     'tower_physical': 'physical_tower',
     'tower_magic': 'magic_tower',
+    'tower_ice': 'ice_tower',
     'trap_fire': 'fire_trap',
     'trap_spikes': 'spike_trap',
     'tile_path': 'enemy_path',

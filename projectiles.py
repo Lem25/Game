@@ -116,6 +116,41 @@ class Projectile:
             pygame.draw.circle(screen, self.color, (int(self.pos.x), int(self.pos.y)), self.size)
 
 
+class ProjectilePool:
+    def __init__(self):
+        self._pool = []
+
+    def acquire(self, start_pos, target_enemy, dmg, dmg_type, tower_type, tower=None):
+        if self._pool:
+            projectile = self._pool.pop()
+            projectile.pos = pygame.Vector2(start_pos)
+            projectile.target = target_enemy
+            projectile.dmg = dmg
+            projectile.dmg_type = dmg_type
+            projectile.tower_type = tower_type
+            projectile.tower = tower
+            projectile.speed = 300
+            projectile.size = 4
+            projectile.color = (0, 100, 255) if tower_type == 'physical' else (148, 0, 211)
+            projectile.angle = 0
+            projectile.bounces_left = 1 if tower and hasattr(tower, 'bounce_enabled') and tower.bounce_enabled else 0
+            projectile.hit_enemies = set()
+            projectile.is_chain = bool(tower and hasattr(tower, 'chain_enabled') and tower.chain_enabled)
+            projectile.sprite = None
+            if get_asset:
+                if tower_type == 'physical':
+                    projectile.sprite = get_asset('arrow_proj', size=12)
+                else:
+                    projectile.sprite = get_asset('missile_proj', size=12)
+            return projectile
+
+        return Projectile(start_pos, target_enemy, dmg, dmg_type, tower_type, tower)
+
+    def release(self, projectile):
+        if projectile:
+            self._pool.append(projectile)
+
+
 class IceLaser:
     def __init__(self, tower, target_enemy, freeze_delay=1.0):
         self.tower = tower
