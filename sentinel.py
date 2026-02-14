@@ -74,7 +74,13 @@ class Sentinel:
         if hasattr(enemy, 'take_damage'):
             enemy.take_damage(amount, dmg_type, source='sentinel')
         else:
-            enemy.hp -= amount
+            shield_hp = getattr(enemy, 'shield_hp', 0.0)
+            remaining = max(0.0, amount)
+            if shield_hp > 0 and remaining > 0:
+                absorbed = min(shield_hp, remaining)
+                enemy.shield_hp = shield_hp - absorbed
+                remaining -= absorbed
+            enemy.hp -= remaining
 
     def _deactivate_barrier(self):
         self.barrier_active = False

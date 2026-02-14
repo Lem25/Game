@@ -213,6 +213,9 @@ while run:
                 elif event.key == pygame.K_5:
                     guide_page = 'strategy'
                     guide_scroll = 0
+                elif event.key == pygame.K_6:
+                    guide_page = 'keybinds'
+                    guide_scroll = 0
                 elif event.key == pygame.K_BACKSPACE:
                     if guide_page != 'menu':
                         guide_page = 'menu'
@@ -296,6 +299,8 @@ while run:
             if paused:
                 continue
           
+            structure_placed = False
+
             if not game_won and placing_tower_type in ['physical', 'magic', 'ice'] and can_place_tower(grid, gx, gy, towers):
                 cost = TOWER_COSTS[placing_tower_type]
                 if money >= cost:
@@ -305,6 +310,7 @@ while run:
                     tower.build_cost = cost
                     towers.append(tower)
                     money -= cost
+                    structure_placed = True
             elif not game_won and placing_tower_type == 'sentinel' and can_place_tower(grid, gx, gy, towers):
                 if money >= SENTINEL_COST:
                     tower_pos = pygame.Vector2(gx * TILE + TILE // 2, gy * TILE + TILE // 2)
@@ -313,6 +319,7 @@ while run:
                     sentinel.build_cost = SENTINEL_COST
                     towers.append(sentinel)
                     money -= SENTINEL_COST
+                    structure_placed = True
             elif not game_won and placing_tower_type in ['fire', 'spikes']:
                 if can_place_trap(grid, gx, gy, towers, traps):
                     cost = TRAP_COSTS.get(placing_tower_type, 0)
@@ -322,6 +329,14 @@ while run:
                         trap.build_cost = cost
                         traps.append(trap)
                         money -= cost
+                        structure_placed = True
+
+            if structure_placed:
+                selected_tower = None
+                placing_tower_type = 'none'
+                targeting_mode_rects = {}
+                sell_button_rect = None
+                continue
            
             selected_tower = None
             for t in towers:

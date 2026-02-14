@@ -74,7 +74,7 @@ def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_t
     magic_cost = tower_costs.get('magic', 60)
     ice_cost = tower_costs.get('ice', 70)
     sentinel_cost = tower_costs.get('sentinel', 80)
-    tower_types_line = f"[1] Archer Tower ${physical_cost}  |  [2] Magic ${magic_cost}  |  [3] Ice ${ice_cost}  |  [6] Sentinel ${sentinel_cost}"
+    tower_types_line = f"Archer Tower ${physical_cost}  |  Magic ${magic_cost}  |  Ice ${ice_cost}  |  Sentinel ${sentinel_cost}"
     towers_surf = font.render(tower_types_line, True, WHITE)
     screen.blit(towers_surf, (20, box_y + 55))
     
@@ -94,11 +94,11 @@ def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_t
     screen.blit(traps_header, (520, box_y + 35))
     fire_cost = tower_costs.get('fire', None)
     spikes_cost = tower_costs.get('spikes', None)
-    trap_info = f"[4] Fire ${fire_cost if fire_cost is not None else 40}  |  [5] Spikes ${spikes_cost if spikes_cost is not None else 30}"
+    trap_info = f"Fire ${fire_cost if fire_cost is not None else 40}  |  Spikes ${spikes_cost if spikes_cost is not None else 30}"
     trap_surf = font.render(trap_info, True, WHITE)
     screen.blit(trap_surf, (520, box_y + 55))
     
-    upgrade_hint = font.render("Select structure: [Q]/[E] upgrade, [R] sell, click targeting, [C] speed", True, (180, 180, 180))
+    upgrade_hint = font.render("Select structure to upgrade or sell, click targeting mode, adjust speed", True, (180, 180, 180))
     screen.blit(upgrade_hint, (20, box_y + 100))
 
     if selected_structure and hasattr(selected_structure, 'targeting_mode'):
@@ -216,7 +216,8 @@ def draw_guide(screen, font, page, scroll_offset=0):
             "[2] Traps & Sentinels",
             "[3] Enemies & Bosses",
             "[4] Game Mechanics",
-            "[5] Strategy Tips"
+            "[5] Strategy Tips",
+            "[6] Keybinds"
         ]
 
         y_offset = 80
@@ -230,6 +231,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
             ('enemies', '3:Enemies'),
             ('mechanics', '4:Mechanics'),
             ('strategy', '5:Strategy'),
+            ('keybinds', '6:Keybinds'),
         ]
 
         page_titles = {
@@ -238,6 +240,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
             'enemies': "ENEMIES & BOSSES",
             'mechanics': "GAME MECHANICS",
             'strategy': "STRATEGY TIPS",
+            'keybinds': "KEYBINDS",
         }
         title = font.render(page_titles.get(page, "GAME GUIDE"), True, (255, 255, 100))
         guide_surf.blit(title, (20, 40))
@@ -361,7 +364,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "  Sentinel: Place on floor tiles, auto-activates near enemies",
                 "",
                 "UPGRADES:",
-                "  Click any tower/trap, press [Q] for Path 1, [E] for Path 2",
+                "  Click any tower/trap and choose one upgrade path",
                 "  Once you pick a path, you can't upgrade the other!",
                 "  Each path has 2 tiers with powerful abilities",
                 "",
@@ -376,6 +379,33 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "  Bleed: Damage over time from Barbed spikes",
                 "  Burn: Fire damage spreads with Oil Slick upgrade",
                 "  Impale: Enemy held in place for 2 seconds"
+            ]
+            line_height = 24
+            content_font = pygame.font.SysFont("arial", 13)
+        elif page == 'keybinds':
+            content = [
+                "GAMEPLAY KEYBINDS:",
+                "  [1] Archer Tower build mode",
+                "  [2] Magic Tower build mode",
+                "  [3] Ice Tower build mode",
+                "  [4] Fire Trap build mode",
+                "  [5] Spike Trap build mode",
+                "  [6] Sentinel build mode",
+                "",
+                "SELECTED STRUCTURE:",
+                "  [Q] Upgrade Path 1",
+                "  [E] Upgrade Path 2",
+                "  [R] Sell structure",
+                "",
+                "GLOBAL CONTROLS:",
+                "  [C] Change game speed",
+                "  [ESC] Pause / Resume",
+                "",
+                "GUIDE CONTROLS (Paused):",
+                "  [H] Open guide",
+                "  [1-6] Open guide pages",
+                "  [UP]/[DOWN] or Wheel: Scroll",
+                "  [BACKSPACE] Back to guide menu / close guide"
             ]
             line_height = 24
             content_font = pygame.font.SysFont("arial", 13)
@@ -436,7 +466,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
 
     tiny_font = pygame.font.SysFont("arial", 12)
     if page == 'menu':
-        nav_text = tiny_font.render("[1-5] Select  |  [BACKSPACE] Close  |  [ESC] Resume", True, (180, 180, 180))
+        nav_text = tiny_font.render("[1-6] Select  |  [BACKSPACE] Close  |  [ESC] Resume", True, (180, 180, 180))
     else:
         nav_text = tiny_font.render("[Wheel/UP/DOWN] Scroll  |  [BACKSPACE] Menu  |  [ESC] Resume", True, (180, 180, 180))
     nav_rect = nav_text.get_rect(bottomright=(guide_width - 12, guide_height - 10))

@@ -95,6 +95,8 @@ class Enemy:
             self.status_effects[effect_type] = StatusEffect(effect_type, duration, strength)
 
     def add_status(self, effect_type, duration, strength=0.0):
+        if self.type == 'minotaur_boss' and self.minotaur_phase2 and effect_type in ('slow', 'frozen', 'impale'):
+            return
         self._set_status(effect_type, duration, strength, stack_strength=True)
 
     def has_status(self, effect_type):
@@ -118,8 +120,15 @@ class Enemy:
         burn = self.status_effects.get('burn')
         self.burning = bool(burn and burn.active)
 
+        bleed = self.status_effects.get('bleed')
+        bleeding = bool(bleed and bleed.active)
+
         if self.burning:
             self.take_damage(3.5 * dt, 'magic', source='trap')
+
+        if bleeding:
+            bleed_dps = 5.0 + (bleed.strength * 0.5)
+            self.take_damage(bleed_dps * dt, 'physical', source='trap')
 
     def repath(self):
         start = self.grid_pos()
@@ -145,7 +154,15 @@ class Enemy:
         self._apply_health_behaviors(enemies)
         self._apply_boss_behaviors(enemies, towers or [], spawn_points or [], goal_grid or self.goal, dt)
 
-        if self.impaled_time > 0:
+        movement_impairment_immune = self.type == 'minotaur_boss' and self.minotaur_phase2
+        if movement_impairment_immune:
+            self.status_effects.pop('slow', None)
+            self.status_effects.pop('frozen', None)
+            self.status_effects.pop('impale', None)
+            self.slow_stacks = 0.0
+            self.impaled_time = 0.0
+
+        if self.impaled_time > 0 and not movement_impairment_immune:
             return
         
         if not self.path or self.path_idx >= len(self.path):
@@ -154,10 +171,10 @@ class Enemy:
                 self.hp = 0
                 return
 
-        if self.has_status('frozen'):
+        if self.has_status('frozen') and not movement_impairment_immune:
             return
 
-        if self.slow_stacks >= 10 and self.freeze_immunity_timer <= 0:
+        if self.slow_stacks >= 10 and self.freeze_immunity_timer <= 0 and not movement_impairment_immune:
             self.status_effects['frozen'] = StatusEffect('frozen', 1.5, 1.0)
             self.freeze_immunity_timer = 2.0
             if 'slow' in self.status_effects:
@@ -250,6 +267,11 @@ class Enemy:
             self.resist_phys = 0.0
             self.resist_magic = 0.0
             self.speed = self.base_speed * 3.5
+            self.status_effects.pop('slow', None)
+            self.status_effects.pop('frozen', None)
+            self.status_effects.pop('impale', None)
+            self.slow_stacks = 0.0
+            self.impaled_time = 0.0
 
     def _apply_boss_behaviors(self, enemies, towers, spawn_points, goal_grid, dt):
         if self.type == 'minotaur_boss' and not self.minotaur_phase2:
@@ -352,6 +374,8 @@ class Enemy:
         return True
 
     def add_slow(self, amount):
+        if self.type == 'minotaur_boss' and self.minotaur_phase2:
+            return
         if self.freeze_immunity_timer > 0:
             return
         self._set_status('slow', 5.0, amount, stack_strength=True)
@@ -360,10 +384,15 @@ class Enemy:
             slow_effect.strength = min(12.0, slow_effect.strength)
 
     def apply_impale(self, duration):
+        if self.type == 'minotaur_boss' and self.minotaur_phase2:
+            return
         self._set_status('impale', duration, 0.0, stack_strength=False)
 
     def apply_burn(self, duration=2.5, strength=1.0):
         self._set_status('burn', duration, strength, stack_strength=False)
+
+    def apply_bleed(self, duration=3.0, strength=1.0):
+        self._set_status('bleed', duration, strength, stack_strength=False)
 
     def draw(self, screen):
         sprite = None
@@ -405,9 +434,19 @@ class Enemy:
 
         bar_w, bar_h = 12, 2
         fill_w = max(0, (self.hp / self.max_hp) * bar_w)
-        pygame.draw.rect(screen, (0, 0, 0), (int(self.pos.x - 6), int(self.pos.y - 10), bar_w, bar_h))
-        pygame.draw.rect(screen, (255, 50, 50), (int(self.pos.x - 6), int(self.pos.y - 10), bar_w, bar_h))
-        pygame.draw.rect(screen, (50, 255, 50), (int(self.pos.x - 6), int(self.pos.y - 10), fill_w, bar_h))
+        bar_x = int(self.pos.x - 6)
+        bar_y = int(self.pos.y - 10)
+        pygame.draw.rect(screen, (0, 0, 0), (bar_x, bar_y, bar_w, bar_h))
+        pygame.draw.rect(screen, (255, 50, 50), (bar_x, bar_y, bar_w, bar_h))
+        pygame.draw.rect(screen, (50, 255, 50), (bar_x, bar_y, fill_w, bar_h))
+
+        if self.shield_hp > 0:
+            max_shield_hp = max(1.0, self.max_hp * 0.30)
+            shield_ratio = max(0.0, min(1.0, self.shield_hp / max_shield_hp))
+            shield_w = max(1, int(bar_w * shield_ratio))
+            shield_overlay = pygame.Surface((shield_w, bar_h), pygame.SRCALPHA)
+            shield_overlay.fill((255, 230, 80, 160))
+            screen.blit(shield_overlay, (bar_x, bar_y))
 
         if self.slow_stacks > 0 or is_frozen:
             meter_w, meter_h = 12, 2

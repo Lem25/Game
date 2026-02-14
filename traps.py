@@ -25,7 +25,6 @@ class Trap:
         self.impale_enabled = False
         self.cluster_enabled = False
         self.quake_enabled = False
-        self.enemies_with_bleed = set()
     
     def get_upgrade_info(self, path):
         """Get upgrade name and cost for the specified path"""
@@ -99,7 +98,13 @@ class Trap:
         if hasattr(enemy, 'take_damage'):
             enemy.take_damage(amount, dmg_type, source=source)
         else:
-            enemy.hp -= amount
+            shield_hp = getattr(enemy, 'shield_hp', 0.0)
+            remaining = max(0.0, amount)
+            if shield_hp > 0 and remaining > 0:
+                absorbed = min(shield_hp, remaining)
+                enemy.shield_hp = shield_hp - absorbed
+                remaining -= absorbed
+            enemy.hp -= remaining
 
     def _update_fire(self, enemies, dt):
         trap_x, trap_y = self.grid_pos
@@ -129,23 +134,14 @@ class Trap:
                         if hasattr(other, 'apply_burn'):
                             other.apply_burn(1.5, 0.5)
 
-    def _update_spikes_bleed(self, enemies, dt):
-        if not self.bleed_enabled:
-            return
-        for enemy_id in list(self.enemies_with_bleed):
-            enemy = next((candidate for candidate in enemies if id(candidate) == enemy_id), None)
-            if enemy and enemy.hp > 0:
-                self._apply_damage(enemy, 5 * dt, 'physical', 'trap')
-            else:
-                self.enemies_with_bleed.discard(enemy_id)
-
     def _update_spikes_trigger(self, enemies, affected):
         for enemy in affected:
             initial_hp = enemy.hp
             self._apply_damage(enemy, self.damage, 'physical', 'trap')
 
             if self.bleed_enabled:
-                self.enemies_with_bleed.add(id(enemy))
+                if hasattr(enemy, 'apply_bleed'):
+                    enemy.apply_bleed(duration=3.0, strength=1.0)
 
             if self.impale_enabled:
                 if hasattr(enemy, 'apply_impale'):
@@ -182,7 +178,6 @@ class Trap:
         
         elif self.trap_type == 'spikes':
             affected = [enemy for enemy in enemies if enemy.grid_pos() == self.grid_pos]
-            self._update_spikes_bleed(enemies, dt)
 
             if not affected:
                 return
