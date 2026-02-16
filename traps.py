@@ -27,7 +27,6 @@ class Trap:
         self.quake_enabled = False
     
     def get_upgrade_info(self, path):
-        """Get upgrade name and cost for the specified path"""
         if path == 1:
             if self.trap_type == 'fire':
                 if self.path1_level == 0:
@@ -53,7 +52,6 @@ class Trap:
         return (None, 0)
     
     def can_upgrade(self, path):
-        """Check if trap can be upgraded on specified path"""
         if path == 1:
             return self.path1_level < 2 and self.path2_level == 0
         elif path == 2:
@@ -61,7 +59,6 @@ class Trap:
         return False
     
     def upgrade(self, path):
-        """Apply upgrade to the specified path"""
         if not self.can_upgrade(path):
             return False
         

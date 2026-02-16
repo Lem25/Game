@@ -95,7 +95,6 @@ class Projectile:
         return True
     
     def _chain_to_nearby(self, enemies, count):
-        """Create chain lightning effect to nearby enemies"""
         chained = 0
         for enemy in enemies:
             if enemy != self.target and self.target.pos.distance_to(enemy.pos) < 100 and chained < count:
@@ -163,6 +162,9 @@ class IceLaser:
         self.width = 3
 
     def update(self, dt, enemies=None):
+        if not self.active:
+            return False
+
         if not self.target or self.target.hp <= 0:
             self.active = False
             return False

@@ -74,7 +74,6 @@ class Tower:
         return max(enemies, key=self._targeting_key)
 
     def get_upgrade_info(self, path):
-        """Get upgrade name and cost for the specified Path"""
         if path == 1:
             if self.type == 'physical':
                 if self.path1_level == 0:
@@ -110,7 +109,6 @@ class Tower:
         return (None, 0)
 
     def can_upgrade(self, path):
-        """Check if tower can be upgraded on specified path"""
         if path == 1:
             return self.path1_level < 2 and self.path2_level == 0
         elif path == 2:
@@ -118,7 +116,6 @@ class Tower:
         return False
 
     def upgrade(self, path):
-        """Apply upgrade to the specified path"""
         if not self.can_upgrade(path):
             return False
         
@@ -162,6 +159,7 @@ class Tower:
                 if self.path2_level == 1:
                     self.slow_aoe = True
                 elif self.path2_level == 2:
+                    self.slow_aoe = False
                     self.absolute_zero = True
         return True
 
@@ -194,18 +192,21 @@ class Tower:
                 for enemy in in_range_enemies:
                     enemy.add_slow(0.5)
 
+            max_targets = len(in_range_enemies) if self.slow_aoe else 1
+            target_enemies = sorted(in_range_enemies, key=self._targeting_key, reverse=True)[:max_targets]
+
             if self.absolute_zero:
-                for enemy in in_range_enemies[:5]:
+                for enemy in target_enemies:
                     enemy.add_slow(10)
             
-            active_targets = {id(e) for e in in_range_enemies}
+            active_targets = {id(e) for e in target_enemies}
             for target_id, laser in list(self.lasers.items()):
                 if target_id not in active_targets:
                     laser.active = False
                     del self.lasers[target_id]
 
             new_lasers = []
-            for enemy in in_range_enemies:
+            for enemy in target_enemies:
                 target_id = id(enemy)
                 laser = self.lasers.get(target_id)
                 if not laser or not laser.active or laser.target is not enemy:

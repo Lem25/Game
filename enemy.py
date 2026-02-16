@@ -15,7 +15,6 @@ ENEMY_SIZE_SCALE = {
     'fighter': 4,
     'swarm': 2.5,
     'mage': 3.5,
-    'disruptor': 4,
     'assassin': 3,
     'healer': 3.5,
     'minotaur_boss': 9,
@@ -67,9 +66,6 @@ class Enemy:
         self.tank_bulwark_active = False
         self.minotaur_phase2 = False
         self.minotaur_stun_cooldown = 1.5
-        self.disruptor_cooldown = 0.8 if enemy_type == 'disruptor' else 0.0
-        self.disruptor_disable_duration = 1.5
-        self.disruptor_range = 120
         self.demon_phase1_done = False
         self.demon_phase2_done = False
         self.demon_phase3_done = False
@@ -204,18 +200,6 @@ class Enemy:
             if self.healer_chain_timer >= self.healer_chain_interval:
                 self.healer_chain_timer = 0.0
                 self._chain_heal_lane(enemies)
-
-        if self.type == 'disruptor':
-            self.disruptor_cooldown -= dt
-            if self.disruptor_cooldown <= 0 and towers:
-                nearby_towers = [tower for tower in towers if self.pos.distance_to(tower.pos) <= self.disruptor_range]
-                if nearby_towers:
-                    target_tower = min(nearby_towers, key=lambda tower: self.pos.distance_to(tower.pos))
-                    current_stun = getattr(target_tower, 'stun_timer', 0.0)
-                    target_tower.stun_timer = max(current_stun, self.disruptor_disable_duration)
-                    self.disruptor_cooldown = 2.8
-                else:
-                    self.disruptor_cooldown = 0.4
 
     def take_damage(self, incoming_dmg, dmg_type, source='generic', resist_override=None):
         if self.type == 'mage' and source == 'projectile' and self.mage_blocks_left > 0:

@@ -3,7 +3,7 @@
 This document explains the entire project in depth: architecture, runtime flow, each module, and every function/method.
 
 > **Last Updated:** February 2026  
-> Includes wave templates, swarm/disruptor enemies, per-tower targeting UI, sell-in-panel economy flow, speed cycling, unified status effects, and late-wave performance helpers.
+> Includes wave templates, swarm burst groups, per-tower targeting UI, sell-in-panel economy flow, speed cycling, unified status effects, and late-wave performance helpers.
 
 ---
 
@@ -140,6 +140,7 @@ Central balancing and configuration values.
 - Display and grid geometry:
   - `WIDTH`, `HEIGHT`, `GAME_HEIGHT`
   - `TILE`, `GRID_W`, `GRID_H`
+  - Current defaults: `TILE = 40`, `GRID_W = 20`, `GRID_H = 20` (800x800 playable grid)
 - Timing:
   - `FPS`
 - Economy:
@@ -236,7 +237,10 @@ Draws bottom HUD panel:
 - selected tower targeting info when relevant
 
 #### `draw_game_over(screen, font)`
-Renders defeat text overlay line.
+Renders full-screen defeat state and two clickable text-button rects.
+
+**Returns**
+- `(play_again_rect, exit_rect)` for click handling in `main.py`.
 
 #### `draw_boss_spawn_popup(screen, font, boss_type)`
 Draws red center popup indicating boss spawn.
@@ -248,7 +252,7 @@ Renders startup modal for target wave numeric input.
 Renders pause overlay, resume hint, and guide hint.
 
 #### `draw_victory(screen, font)`
-Renders victory overlay and two clickable text-button rects.
+Renders full-screen victory state and two clickable text-button rects.
 
 **Returns**
 - `(play_again_rect, exit_rect)` for click handling in `main.py`.
@@ -295,7 +299,7 @@ Builds initial `grid`, `spawn_points`, and center `goal`.
 
 **Layout strategy**
 - Border walls and interior build area.
-- Carves 3 predefined routes from three spawn points to central goal.
+- Carves 3 routes from three spawn points chosen from grid-relative coordinates so smaller/larger grids stay valid.
 - Marks goal tile as path (`2`) so pathfinder can terminate there.
 
 **Returns**
@@ -396,7 +400,7 @@ Returns current tile coordinate from pixel position.
 Main per-frame behavior:
 1. Updates status effects (slow / frozen / impale / burn).
 2. Applies health-threshold behaviors.
-3. Applies boss/special behavior (including disruptor disable pulse).
+3. Applies boss/special behavior.
 4. Repaths if needed.
 5. Resolves freeze application and unfreeze/immunity behavior.
 6. Moves toward current waypoint using `dt`-scaled movement.
@@ -580,6 +584,10 @@ Defines a support tower that creates temporary barriers and utility control effe
 #### `__init__(self, pos)`
 Initializes tile anchor, barrier duration/cooldown/range, and upgrade flags.
 
+**Current baseline**
+- barrier duration: `6.0s`
+- barrier cooldown: `10.0s`
+
 #### `get_upgrade_info(self, path)`
 Returns next sentinel upgrade tuple `(name, cost)`.
 
@@ -588,8 +596,8 @@ Path-lock validation.
 
 #### `upgrade(self, path)`
 Applies sentinel path effects:
-- Path 1: longer/stronger barrier + reflect damage
-- Path 2: pulse knockback + overload explosion
+- Path 1: longer barrier/range, then reflect DoT (`15 DPS`, magic)
+- Path 2: pulse knockback enable, then overload AoE on barrier expiry (`150` damage)
 
 #### `_apply_damage(self, enemy, amount, dmg_type)`
 Damage adapter (`take_damage` preferred).
@@ -603,6 +611,7 @@ Runs overload AoE on expiry (if enabled), then deactivates.
 #### `_handle_barrier_block(self, enemies, dt)`
 If enemies occupy sentinel tile:
 - pushes them backward along radial direction
+- applies strong slow each tick via enemy slow system (`add_slow(2.5)`)
 - applies reflect DoT when unlocked.
 
 #### `_handle_pulse(self, enemies)`
@@ -659,6 +668,7 @@ Initializes persistent beam lock from ice tower to target.
 Maintains beam while target alive/in range:
 - applies initial slow once
 - after `freeze_delay`, applies heavy slow burst and resets timer
+- immediately deactivates when beam is flagged inactive
 
 **Returns**
 - `True` if still active, else `False`.
@@ -689,6 +699,8 @@ Draws beam line and endpoint glow marker.
 - tower menu click or `R`: sell selected structure
 - `ESC`: pause/resume
 - paused + `H`: open guide
+- paused + `O`: open settings
+- victory/game-over screen: click `Play Again` or `Exit`
 
 ### Economy
 - start money: `400`

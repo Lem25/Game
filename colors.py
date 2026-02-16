@@ -12,7 +12,6 @@ ENEMY_COLORS = {
     'fighter': (255, 165, 0),
     'swarm': (255, 235, 100),
     'mage': (148, 0, 211),
-    'disruptor': (120, 255, 180),
     'assassin': (75, 0, 130),
     'healer': (0, 128, 0),
     'minotaur_boss': (200, 100, 0),

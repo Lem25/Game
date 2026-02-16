@@ -1,5 +1,5 @@
 import pygame
-from constants import WIDTH, HEIGHT, TILE, GRID_W, GRID_H, GAME_HEIGHT, TOWER_COSTS, TRAP_COSTS, SENTINEL_COST
+from constants import WIDTH, HEIGHT, TILE, GRID_W, GRID_H, GAME_HEIGHT
 from colors import BLACK, WHITE, LIGHT_GREEN, DARK_GREEN, GOLD
 from assets import get as get_asset
 
@@ -113,8 +113,23 @@ def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_t
         screen.blit(mode_text, (520, box_y + 75))
 
 def draw_game_over(screen, font):
-    go_text = font.render("GAME OVER! Press Ctrl+C to restart.", True, (255, 50, 50))
-    screen.blit(go_text, (WIDTH // 2 - 200, HEIGHT // 2 - 100))
+    screen.fill((100, 0, 0))
+
+    game_over_text = font.render("GAME OVER", True, (255, 80, 80))
+    game_over_rect = game_over_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 80))
+    screen.blit(game_over_text, game_over_rect)
+
+    play_again_text = font.render("Play Again", True, WHITE)
+    play_again_rect = play_again_text.get_rect(center=(WIDTH // 2 - 100, HEIGHT // 2 + 50))
+    pygame.draw.rect(screen, (180, 80, 80), play_again_rect.inflate(20, 10), 2)
+    screen.blit(play_again_text, play_again_rect)
+
+    exit_text = font.render("Exit", True, WHITE)
+    exit_rect = exit_text.get_rect(center=(WIDTH // 2 + 100, HEIGHT // 2 + 50))
+    pygame.draw.rect(screen, (150, 0, 0), exit_rect.inflate(20, 10), 2)
+    screen.blit(exit_text, exit_rect)
+
+    return play_again_rect, exit_rect
 
 def draw_boss_spawn_popup(screen, font, boss_type):
     popup_width = 300
@@ -156,7 +171,7 @@ def draw_wave_selection_popup(screen, font, input_text):
     
     screen.blit(popup_surface, (popup_x, popup_y))
 
-def draw_pause(screen, font):
+def draw_pause(screen, font, guide_key='H', settings_key='O'):
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
     pygame.draw.rect(overlay, (0, 0, 0, 150), (0, 0, WIDTH, HEIGHT))
     screen.blit(overlay, (0, 0))
@@ -169,14 +184,131 @@ def draw_pause(screen, font):
     resume_rect = resume_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 20))
     screen.blit(resume_text, resume_rect)
     
-    guide_text = font.render("Press [H] for Game Guide", True, (100, 255, 100))
+    guide_text = font.render(f"Press [{guide_key}] for Game Guide", True, (100, 255, 100))
     guide_rect = guide_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 20))
     screen.blit(guide_text, guide_rect)
 
-def draw_victory(screen, font):
+    settings_text = font.render(f"Press [{settings_key}] for Settings", True, (100, 200, 255))
+    settings_rect = settings_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 60))
+    screen.blit(settings_text, settings_rect)
+
+
+def draw_settings_popup(
+    screen,
+    font,
+    current_resolution,
+    resolution_options,
+    settings_tab='resolution',
+    keybind_display=None,
+    waiting_action=None,
+):
+    popup_width = 520
+    popup_height = 420
+    popup_x = (WIDTH - popup_width) // 2
+    popup_y = (HEIGHT - popup_height) // 2
+
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-    pygame.draw.rect(overlay, (0, 100, 0, 200), (0, 0, WIDTH, HEIGHT))
+    pygame.draw.rect(overlay, (0, 0, 0, 160), (0, 0, WIDTH, HEIGHT))
     screen.blit(overlay, (0, 0))
+
+    popup_surface = pygame.Surface((popup_width, popup_height), pygame.SRCALPHA)
+    pygame.draw.rect(popup_surface, (15, 20, 30, 245), (0, 0, popup_width, popup_height))
+    pygame.draw.rect(popup_surface, (120, 180, 255, 220), (0, 0, popup_width, popup_height), 2)
+
+    title = font.render("SETTINGS", True, (255, 255, 120))
+    popup_surface.blit(title, (popup_width // 2 - title.get_width() // 2, 20))
+
+    hint = font.render("[1] Resolution  |  [2] Keybinds  |  ESC closes settings", True, (190, 190, 190))
+    popup_surface.blit(hint, (popup_width // 2 - hint.get_width() // 2, 52))
+
+    tab_defs = [
+        ('resolution', '[1] Resolution'),
+        ('keybinds', '[2] Keybinds'),
+    ]
+    tab_rects = []
+    tab_y = 86
+    tab_x = 40
+    for tab_key, tab_label in tab_defs:
+        tab_rect = pygame.Rect(tab_x, tab_y, 210, 34)
+        is_active = settings_tab == tab_key
+        fill_color = (45, 70, 105, 235) if is_active else (35, 45, 65, 220)
+        border_color = (130, 210, 255) if is_active else (95, 120, 165)
+        pygame.draw.rect(popup_surface, fill_color, tab_rect)
+        pygame.draw.rect(popup_surface, border_color, tab_rect, 2)
+        tab_text = font.render(tab_label, True, (220, 240, 255) if is_active else (180, 190, 210))
+        popup_surface.blit(tab_text, (tab_rect.x + 14, tab_rect.y + 8))
+        tab_rects.append((pygame.Rect(popup_x + tab_rect.x, popup_y + tab_rect.y, tab_rect.width, tab_rect.height), tab_key))
+        tab_x += 230
+
+    option_rects = []
+    keybind_action_rects = []
+    if settings_tab == 'resolution':
+        tab_hint = font.render("Click a resolution option to apply", True, (185, 210, 235))
+        popup_surface.blit(tab_hint, (popup_width // 2 - tab_hint.get_width() // 2, 132))
+
+        y = 168
+        for idx, res in enumerate(resolution_options):
+            label = f"{idx + 1}. {res[0]} x {res[1]}"
+            is_current = tuple(current_resolution) == tuple(res)
+            text_color = (120, 255, 120) if is_current else (230, 230, 230)
+            text = font.render(label, True, text_color)
+
+            row_rect = pygame.Rect(60, y - 4, popup_width - 120, 38)
+            border = (80, 220, 120) if is_current else (90, 120, 170)
+            pygame.draw.rect(popup_surface, (30, 35, 50, 220), row_rect)
+            pygame.draw.rect(popup_surface, border, row_rect, 2)
+            popup_surface.blit(text, (row_rect.x + 14, row_rect.y + 8))
+
+            option_rects.append((pygame.Rect(popup_x + row_rect.x, popup_y + row_rect.y, row_rect.width, row_rect.height), res))
+            y += 42
+    else:
+        keybind_display = keybind_display or {}
+        action_rows = [
+            ('pause', 'Pause / Resume'),
+            ('open_guide', 'Open Guide'),
+            ('open_settings', 'Open Settings'),
+            ('build_physical', 'Build Archer Tower'),
+            ('build_magic', 'Build Magic Tower'),
+            ('build_ice', 'Build Ice Tower'),
+            ('build_fire', 'Build Fire Trap'),
+            ('build_spikes', 'Build Spike Trap'),
+            ('build_sentinel', 'Build Sentinel'),
+            ('upgrade_path1', 'Upgrade Path 1'),
+            ('upgrade_path2', 'Upgrade Path 2'),
+            ('sell_structure', 'Sell Structure'),
+            ('cycle_speed', 'Cycle Game Speed'),
+        ]
+
+        if waiting_action:
+            waiting_name = next((label for action, label in action_rows if action == waiting_action), waiting_action)
+            tab_hint = font.render(f"Press a key for: {waiting_name} (ESC cancels)", True, (255, 220, 120))
+        else:
+            tab_hint = font.render("Click action row to change keybind", True, (185, 210, 235))
+        popup_surface.blit(tab_hint, (popup_width // 2 - tab_hint.get_width() // 2, 132))
+
+        y = 166
+        for action, label in action_rows:
+            row_rect = pygame.Rect(44, y, popup_width - 88, 26)
+            is_waiting = waiting_action == action
+            border = (255, 210, 120) if is_waiting else (90, 120, 170)
+            fill = (45, 35, 25, 230) if is_waiting else (30, 35, 50, 220)
+            pygame.draw.rect(popup_surface, fill, row_rect)
+            pygame.draw.rect(popup_surface, border, row_rect, 2)
+
+            key_text_value = keybind_display.get(action, '-')
+            label_text = font.render(label, True, (230, 230, 230))
+            key_text = font.render(f"[{key_text_value}]", True, (120, 255, 120) if not is_waiting else (255, 220, 120))
+            popup_surface.blit(label_text, (row_rect.x + 10, row_rect.y + 4))
+            popup_surface.blit(key_text, (row_rect.right - key_text.get_width() - 10, row_rect.y + 4))
+
+            keybind_action_rects.append((pygame.Rect(popup_x + row_rect.x, popup_y + row_rect.y, row_rect.width, row_rect.height), action))
+            y += 29
+
+    screen.blit(popup_surface, (popup_x, popup_y))
+    return {'tabs': tab_rects, 'options': option_rects, 'actions': keybind_action_rects}
+
+def draw_victory(screen, font):
+    screen.fill((0, 100, 0))
     
     victory_text = font.render("VICTORY!", True, (0, 255, 0))
     victory_rect = victory_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 80))
@@ -195,7 +327,6 @@ def draw_victory(screen, font):
     return play_again_rect, exit_rect
 
 def draw_guide(screen, font, page, scroll_offset=0):
-    """Draw the game guide overlay and return max scroll for current page."""
     guide_width = 700
     guide_height = 650
     guide_x = (WIDTH - guide_width) // 2
@@ -278,28 +409,28 @@ def draw_guide(screen, font, page, scroll_offset=0):
             content = [
                 "ARCHER TOWER - $60",
                 "  Path 1: Sniper ($120) -> Elite ($240)",
-                "    Sniper: +Range, +Damage | Elite: Ignores 50% armor",
+                "    Sniper: +Range, +Damage | Elite: Ignores 60% armor",
                 "  Path 2: Volley ($110) -> Bounce ($220)",
-                "    Volley: 3 arrows | Bounce: Arrows bounce once",
+                "    Volley: 4 arrows | Bounce: Arrows bounce once",
                 "",
                 "MAGIC TOWER - $70",
                 "  Path 1: Bolt ($140) -> Arc ($280)",
-                "    Bolt: Chain to 2 enemies | Arc: Chain 3 + spread effects",
+                "    Bolt: Chain to 3 enemies | Arc: Chain 4 + spread effects",
                 "  Path 2: Nova ($160) -> Vortex ($320)",
                 "    Nova: AoE damage | Vortex: Pull enemies + bigger AoE",
                 "",
                 "ICE TOWER - $80",
                 "  Path 1: Glacial ($130) -> Shatter ($260)",
-                "    Glacial: 2x freeze time | Shatter: +50% dmg to frozen",
+                "    Glacial: Faster freeze pulses | Shatter: +70% dmg to frozen",
                 "  Path 2: Blizzard ($150) -> Absolute Zero ($300)",
-                "    Blizzard: AoE slow | Absolute Zero: Freeze path segment",
+                "    Blizzard: Slow all enemies in range | Absolute Zero: Focus hard-freeze",
                 "",
                 "SENTINEL TOWER - $90",
-                "  Auto-activates barrier when enemies approach (5s, 10s CD)",
+                "  Auto-activates barrier when enemies approach (6s, 10s CD)",
                 "  Path 1: Barrier ($100) -> Reflect ($200)",
-                "    Barrier: 8s duration | Reflect: 3 DPS to blocked enemies",
+                "    Barrier: 8s duration | Reflect: 15 DPS to blocked enemies",
                 "  Path 2: Pulse ($110) -> Overload ($220)",
-                "    Pulse: Repel enemies | Overload: Explode for 100 AoE"
+                "    Pulse: Stronger repel | Overload: Explode for 150 AoE"
             ]
             line_height = 24
             content_font = pygame.font.SysFont("arial", 13)
@@ -333,6 +464,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "    At 30% HP: teleports to nearest healer (once)",
                 "    If no healer: 50% dodge and +20% move speed",
                 "  Tank - Heavy all-around resist, doubles resist at 30% HP",
+                "  Swarm - Very low HP, high speed, spawns in tight burst groups",
                 "  Healer - Neutral resist, chain-heals 13% HP to up to 3 lane allies",
                 "",
                 "BOSSES (Spawn every 5 waves):",
@@ -359,14 +491,18 @@ def draw_guide(screen, font, page, scroll_offset=0):
         elif page == 'mechanics':
             content = [
                 "PLACING STRUCTURES:",
-                "  Towers: Place on floor tiles (light gray)",
-                "  Traps: Place on path tiles (dark gray)",
+                "  Grid: 20x20 tiles, 40px per tile",
+                "  Towers: Place on floor tiles",
+                "  Traps: Place on path tiles",
                 "  Sentinel: Place on floor tiles, auto-activates near enemies",
                 "",
                 "UPGRADES:",
                 "  Click any tower/trap and choose one upgrade path",
                 "  Once you pick a path, you can't upgrade the other!",
                 "  Each path has 2 tiers with powerful abilities",
+                "",
+                "MATCH END:",
+                "  Victory and Game Over both show Play Again / Exit buttons",
                 "",
                 "DAMAGE TYPES:",
                 "  Physical - Reduced by physical resistance",
@@ -400,6 +536,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "GLOBAL CONTROLS:",
                 "  [C] Change game speed",
                 "  [ESC] Pause / Resume",
+                "  [O] Open settings (while paused)",
                 "",
                 "GUIDE CONTROLS (Paused):",
                 "  [H] Open guide",
@@ -475,7 +612,6 @@ def draw_guide(screen, font, page, scroll_offset=0):
     screen.blit(guide_surf, (guide_x, guide_y))
     return max_scroll
 def draw_upgrade_ui(screen, font, selected_structure, money):
-    """Draw upgrade options for selected tower/trap/sentinel"""
     if not selected_structure:
         return {'targeting_modes': {}, 'sell_rect': None}
 
