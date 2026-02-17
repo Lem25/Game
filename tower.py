@@ -12,20 +12,27 @@ class Tower:
     def __init__(self, pos, ttype):
         self.pos = pos
         self.type = ttype
+        self.category = 'physical'
         self.dmg_type = ttype
         if ttype == 'physical':
             self.dmg = 20
             self.color = (0, 100, 255)
             self.name = "Archer Tower"
         elif ttype == 'magic':
-            self.dmg = 18
+            self.dmg = 20
             self.color = (148, 0, 211)
             self.name = "Magic Tower"
+        elif ttype == 'executioner':
+            self.dmg = 120
+            self.color = (90, 30, 30)
+            self.name = "Executioner Tower"
+            self.category = 'physical'
+            self.dmg_type = 'physical'
         else:
             self.dmg = 0
             self.color = (100, 200, 255)
             self.name = "Ice Tower"
-        self.range = 130
+        self.range = 200 if ttype == 'executioner' else 130
         self.cooldown = 0
         self.size = 8
         self.stun_timer = 0.0
@@ -46,8 +53,11 @@ class Tower:
         self.shatter_bonus = 0.0
         self.slow_aoe = False
         self.absolute_zero = False
-        self.targeting_mode = 'first'
-        self.attack_interval = 0.8
+        self.targeting_mode = 'strongest' if ttype == 'executioner' else 'first'
+        self.attack_interval = 2.2 if ttype == 'executioner' else 0.8
+        self.executioner_mark = False
+        self.executioner_percent = False
+        self.executioner_pierce = False
 
     def cycle_targeting_mode(self):
         idx = self.TARGETING_MODES.index(self.targeting_mode)
@@ -90,6 +100,11 @@ class Tower:
                     return ("Glacial", 130)
                 elif self.path1_level == 1:
                     return ("Shatter", 260)
+            elif self.type == 'executioner':
+                if self.path1_level == 0:
+                    return ("Mark", 160)
+                elif self.path1_level == 1:
+                    return ("Annihilate", 320)
         elif path == 2:
             if self.type == 'physical':
                 if self.path2_level == 0:
@@ -106,6 +121,11 @@ class Tower:
                     return ("Blizzard", 150)
                 elif self.path2_level == 1:
                     return ("Absolute Zero", 300)
+            elif self.type == 'executioner':
+                if self.path2_level == 0:
+                    return ("Scope", 150)
+                elif self.path2_level == 1:
+                    return ("Railshot", 300)
         return (None, 0)
 
     def can_upgrade(self, path):
@@ -127,7 +147,7 @@ class Tower:
                     self.dmg = 24
                 elif self.path1_level == 2:
                     self.armor_pierce = 0.6
-                    self.dmg = 32
+                    self.dmg = 34
             elif self.type == 'magic':
                 if self.path1_level == 1:
                     self.chain_enabled = True
@@ -140,6 +160,11 @@ class Tower:
                     self.freeze_duration = 0.45
                 elif self.path1_level == 2:
                     self.shatter_bonus = 0.7
+            elif self.type == 'executioner':
+                if self.path1_level == 1:
+                    self.executioner_mark = True
+                elif self.path1_level == 2:
+                    self.executioner_percent = True
                     
         elif path == 2:
             self.path2_level += 1
@@ -161,6 +186,12 @@ class Tower:
                 elif self.path2_level == 2:
                     self.slow_aoe = False
                     self.absolute_zero = True
+            elif self.type == 'executioner':
+                if self.path2_level == 1:
+                    self.range *= 1.35
+                    self.attack_interval *= 0.85
+                elif self.path2_level == 2:
+                    self.executioner_pierce = True
         return True
 
     def in_range(self, enemy):
@@ -238,6 +269,9 @@ class Tower:
                     projectile = projectile_pool.acquire(self.pos, target_enemy, self.dmg, self.dmg_type, self.type, self)
                 else:
                     projectile = Projectile(self.pos, target_enemy, self.dmg, self.dmg_type, self.type, self)
+                projectile.executioner_mark = bool(self.executioner_mark)
+                projectile.executioner_percent = bool(self.executioner_percent)
+                projectile.executioner_pierce = bool(self.executioner_pierce)
                 self.cooldown = self.attack_interval
                 return projectile
             return None
@@ -259,6 +293,9 @@ class Tower:
                     projectile = projectile_pool.acquire(self.pos, target, self.dmg, self.dmg_type, self.type, self)
                 else:
                     projectile = Projectile(self.pos, target, self.dmg, self.dmg_type, self.type, self)
+                projectile.executioner_mark = bool(self.executioner_mark)
+                projectile.executioner_percent = bool(self.executioner_percent)
+                projectile.executioner_pierce = bool(self.executioner_pierce)
                 projectiles.append(projectile)
             self.cooldown = self.attack_interval
             return projectiles if projectiles else None
@@ -267,13 +304,23 @@ class Tower:
             projectile = projectile_pool.acquire(self.pos, nearest_enemy, self.dmg, self.dmg_type, self.type, self)
         else:
             projectile = Projectile(self.pos, nearest_enemy, self.dmg, self.dmg_type, self.type, self)
+        projectile.executioner_mark = bool(self.executioner_mark)
+        projectile.executioner_percent = bool(self.executioner_percent)
+        projectile.executioner_pierce = bool(self.executioner_pierce)
         self.cooldown = self.attack_interval
         return projectile
 
     def draw(self, screen, selected=False):
         sprite = None
         if get_asset:
-            key = 'tower_physical' if self.type == 'physical' else ('tower_magic' if self.type == 'magic' else 'tower_ice')
+            if self.type == 'physical':
+                key = 'tower_physical'
+            elif self.type == 'magic':
+                key = 'tower_magic'
+            elif self.type == 'executioner':
+                key = 'tower_executioner'
+            else:
+                key = 'tower_ice'
             sprite = get_asset(key, size=int(self.size * 3))
         if sprite:
             rect = sprite.get_rect(center=(int(self.pos.x), int(self.pos.y)))

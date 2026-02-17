@@ -5,7 +5,7 @@ import sys
 import pygame
 
 from colors import DARK_GRAY
-from constants import FPS, GRID_H, GRID_W, HEIGHT, TILE, TOWER_COSTS, TRAP_COSTS, WIDTH, SENTINEL_COST
+from constants import FPS, GRID_H, GRID_W, HEIGHT, TILE, TOWER_COSTS, TRAP_COSTS, WIDTH
 from drawing import (
     draw_boss_spawn_popup,
     draw_game_over,
@@ -22,11 +22,16 @@ from enemy import Enemy, invalidate_path_cache
 from maze import create_maze, expand_paths
 from tower import Tower
 from traps import Trap
-from sentinel import Sentinel
 from projectiles import IceLaser, ProjectilePool
 from spatial import SpatialHash
 from wave_templates import choose_enemy_type, get_spawn_interval
-from game_settings import DEFAULT_KEYBINDS, RESOLUTION_OPTIONS, load_settings, save_settings
+from game_settings import RESOLUTION_OPTIONS, load_settings, save_settings
+from keybind_utils import load_keybind_maps, pretty_key_name
+from economy import calculate_interest, get_structure_sell_value
+from spawn_scaling import apply_spawn_scaling
+from viewport_utils import get_viewport_rect, present_frame, window_to_game_pos
+from placement_rules import can_place_tower, can_place_trap
+from wave_progression import get_wave_enemy_count
 
 pygame.init()
 game_settings = load_settings()
@@ -40,71 +45,6 @@ debug_font = pygame.font.SysFont("arial", 12)
 DEBUG_LANE_OVERLAY = True
 SWARM_GROUP_SIZE = 4
 SWARM_SPAWN_SPACING = 0.15
-
-
-def _normalize_key_name(name):
-    key_name = (name or '').strip().lower()
-    if key_name.startswith('[') and key_name.endswith(']') and len(key_name) > 2:
-        key_name = key_name[1:-1].strip().lower()
-    return key_name
-
-
-def load_keybind_maps(settings_payload):
-    raw_bindings = settings_payload.get('keybinds', {})
-    keybind_names = {}
-    keybind_codes = {}
-    for action, default_name in DEFAULT_KEYBINDS.items():
-        candidate = _normalize_key_name(raw_bindings.get(action, default_name)) or default_name
-        try:
-            key_code = pygame.key.key_code(candidate)
-        except Exception:
-            candidate = default_name
-            key_code = pygame.key.key_code(candidate)
-        keybind_names[action] = candidate
-        keybind_codes[action] = key_code
-    return keybind_names, keybind_codes
-
-
-def pretty_key_name(key_code):
-    key_name = pygame.key.name(key_code)
-    if len(key_name) == 1:
-        return key_name.upper()
-    return key_name.replace('_', ' ').title()
-
-
-def get_viewport_rect(surface):
-    window_w, window_h = surface.get_size()
-    scale = min(window_w / WIDTH, window_h / HEIGHT)
-    viewport_w = max(1, int(WIDTH * scale))
-    viewport_h = max(1, int(HEIGHT * scale))
-    viewport_x = (window_w - viewport_w) // 2
-    viewport_y = (window_h - viewport_h) // 2
-    return pygame.Rect(viewport_x, viewport_y, viewport_w, viewport_h)
-
-
-def present_frame():
-    viewport = get_viewport_rect(window)
-    window.fill((0, 0, 0))
-    if viewport.size == (WIDTH, HEIGHT):
-        window.blit(screen, viewport.topleft)
-    else:
-        scaled = pygame.transform.smoothscale(screen, viewport.size)
-        window.blit(scaled, viewport.topleft)
-    pygame.display.flip()
-    return viewport
-
-
-def window_to_game_pos(pos, viewport):
-    x, y = pos
-    if not viewport.collidepoint(x, y):
-        return None
-    rel_x = (x - viewport.x) / viewport.width
-    rel_y = (y - viewport.y) / viewport.height
-    gx = int(rel_x * WIDTH)
-    gy = int(rel_y * HEIGHT)
-    gx = max(0, min(WIDTH - 1, gx))
-    gy = max(0, min(HEIGHT - 1, gy))
-    return gx, gy
 
 
 def apply_resolution(new_resolution):
@@ -140,7 +80,7 @@ def get_wave_selection():
         clock.tick(FPS)
         screen.fill(DARK_GRAY)
         draw_wave_selection_popup(screen, font, input_text)
-        present_frame()
+        present_frame(window, screen, WIDTH, HEIGHT)
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -155,59 +95,6 @@ def get_wave_selection():
                 elif event.unicode.isdigit() and len(input_text) < 3:
                     input_text += event.unicode
     return 50
-
-def can_place_tower(grid, gx, gy, towers):
-    if not (0 <= gx < GRID_W and 0 <= gy < GRID_H):
-        return False
-    
-    if grid[gy][gx] != 0:
-        return False
-    
-    tower_exists = any(math.hypot(t.pos.x - (gx * TILE + TILE // 2), 
-                                  t.pos.y - (gy * TILE + TILE // 2)) < TILE for t in towers)
-    return not tower_exists
-
-
-def can_place_trap(grid, gx, gy, towers, traps):
-    if not (0 <= gx < GRID_W and 0 <= gy < GRID_H):
-        return False
-    if grid[gy][gx] != 2:
-        return False
-    for tower in towers:
-        if int(tower.pos.x // TILE) == gx and int(tower.pos.y // TILE) == gy:
-            return False
-    for trap in traps:
-        if trap.grid_pos == (gx, gy):
-            return False
-    return True
-
-
-def get_structure_build_cost(structure):
-    if hasattr(structure, 'build_cost') and structure.build_cost:
-        return structure.build_cost
-    if hasattr(structure, 'type') and structure.type in TOWER_COSTS:
-        return TOWER_COSTS[structure.type]
-    if hasattr(structure, 'trap_type'):
-        return TRAP_COSTS.get(structure.trap_type, 0)
-    if isinstance(structure, Sentinel):
-        return SENTINEL_COST
-    return 0
-
-def get_structure_sell_value(structure):
-    build_cost = get_structure_build_cost(structure)
-    upgrade_spent = getattr(structure, 'upgrade_spent', 0)
-    return int((build_cost + upgrade_spent) * 0.75)
-
-
-def get_wave_enemy_count(wave, target_wave):
-    effective_wave = min(wave, target_wave)
-
-    if effective_wave <= 5:
-        return 4 + effective_wave
-    if effective_wave <= 14:
-        return 9 + int((effective_wave - 5) * 1.5)
-    return 22 + int((effective_wave - 14) * 2.0)
-
 
 grid, spawn_points, GOAL_GRID = create_maze()
 towers = []
@@ -243,19 +130,22 @@ targeting_mode_rects = {}
 sell_button_rect = None
 pending_spawns = []
 spawn_clock = 0.0
+wave_swarm_spawn_count = 0
 show_settings = False
 settings_option_rects = []
 settings_tab_rects = []
 settings_tab = 'resolution'
 settings_action_rects = []
 awaiting_keybind_action = None
-viewport_rect = get_viewport_rect(window)
+settings_scroll = 0
+settings_max_scroll = 0
+viewport_rect = get_viewport_rect(window, WIDTH, HEIGHT)
 keybind_names, keybind_codes = load_keybind_maps(game_settings)
 
 def next_wave():
     global wave, wave_enemies_left, boss_spawn_lane, spawn_points
     global enemy_scale, boss_popup_counter, target_wave
-    global pending_spawns
+    global pending_spawns, wave_swarm_spawn_count
     wave += 1
 
     wave_enemies_left = max(2, get_wave_enemy_count(wave, target_wave))
@@ -275,6 +165,7 @@ def next_wave():
     
     boss_popup_counter = 0
     pending_spawns = []
+    wave_swarm_spawn_count = 0
 
     try:
         from constants import ENEMY_SCALE_WAVE_INTERVAL, ENEMY_SCALE_INCREMENT
@@ -302,8 +193,9 @@ def reset_match_state(selected_target_wave=None):
     global game_speed, projectile_pool, spatial_index, last_interest_wave
     global targeting_mode_rects, sell_button_rect
     global pending_spawns, spawn_clock
+    global wave_swarm_spawn_count
     global show_settings, settings_option_rects, settings_tab_rects, settings_tab
-    global settings_action_rects, awaiting_keybind_action
+    global settings_action_rects, awaiting_keybind_action, settings_scroll, settings_max_scroll
 
     grid, spawn_points, GOAL_GRID = create_maze()
     invalidate_path_cache()
@@ -341,12 +233,15 @@ def reset_match_state(selected_target_wave=None):
     sell_button_rect = None
     pending_spawns = []
     spawn_clock = 0.0
+    wave_swarm_spawn_count = 0
     show_settings = False
     settings_option_rects = []
     settings_tab_rects = []
     settings_tab = 'resolution'
     settings_action_rects = []
     awaiting_keybind_action = None
+    settings_scroll = 0
+    settings_max_scroll = 0
 
     next_wave()
 
@@ -367,7 +262,7 @@ while run:
             current_resolution = window.get_size()
             game_settings['resolution'] = [current_resolution[0], current_resolution[1]]
             save_settings(game_settings)
-            viewport_rect = get_viewport_rect(window)
+            viewport_rect = get_viewport_rect(window, WIDTH, HEIGHT)
         elif event.type == pygame.KEYDOWN:
             pause_key = keybind_codes.get('pause', pygame.K_ESCAPE)
             guide_key = keybind_codes.get('open_guide', pygame.K_h)
@@ -385,6 +280,8 @@ while run:
                     settings_tab_rects = []
                     settings_action_rects = []
                     awaiting_keybind_action = None
+                    settings_scroll = 0
+                    settings_max_scroll = 0
                 else:
                     paused = not paused
                     if not paused:
@@ -393,17 +290,25 @@ while run:
                         guide_page = 'menu'
                         guide_scroll = 0
                         awaiting_keybind_action = None
+                        settings_scroll = 0
+                        settings_max_scroll = 0
             elif paused and show_settings:
                 if event.key == pygame.K_1:
                     settings_tab = 'resolution'
+                    settings_scroll = 0
                 elif event.key == pygame.K_2:
                     settings_tab = 'keybinds'
+                    settings_scroll = 0
+                elif event.key in (pygame.K_UP, pygame.K_w):
+                    settings_scroll = max(0, settings_scroll - 30)
+                elif event.key in (pygame.K_DOWN, pygame.K_s):
+                    settings_scroll = min(settings_max_scroll, settings_scroll + 30)
                 elif settings_tab == 'resolution':
                     for idx, res in enumerate(RESOLUTION_OPTIONS):
                         number_key = pygame.K_1 + idx
                         if event.key == number_key:
                             apply_resolution(res)
-                            viewport_rect = get_viewport_rect(window)
+                            viewport_rect = get_viewport_rect(window, WIDTH, HEIGHT)
                             break
             elif paused and not show_guide:
                 if event.key == guide_key:
@@ -417,6 +322,8 @@ while run:
                         show_guide = False
                         settings_tab = 'resolution'
                         awaiting_keybind_action = None
+                        settings_scroll = 0
+                        settings_max_scroll = 0
             elif paused and show_guide:
                 if event.key == pygame.K_1:
                     guide_page = 'towers'
@@ -454,12 +361,12 @@ while run:
                     placing_tower_type = 'magic'
                 elif event.key == keybind_codes.get('build_ice', pygame.K_3):
                     placing_tower_type = 'ice'
+                elif event.key == keybind_codes.get('build_executioner', pygame.K_6):
+                    placing_tower_type = 'executioner'
                 elif event.key == keybind_codes.get('build_fire', pygame.K_4):
                     placing_tower_type = 'fire'
                 elif event.key == keybind_codes.get('build_spikes', pygame.K_5):
                     placing_tower_type = 'spikes'
-                elif event.key == keybind_codes.get('build_sentinel', pygame.K_6):
-                    placing_tower_type = 'sentinel'
                 elif event.key == keybind_codes.get('cycle_speed', pygame.K_c):
                     game_speed = 1 if game_speed >= 3 else game_speed + 1
                 elif event.key == keybind_codes.get('upgrade_path1', pygame.K_q):
@@ -487,7 +394,7 @@ while run:
                         targeting_mode_rects = {}
                         sell_button_rect = None
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            logical_pos = window_to_game_pos(event.pos, viewport_rect)
+            logical_pos = window_to_game_pos(event.pos, viewport_rect, WIDTH, HEIGHT)
             if logical_pos is None:
                 continue
             mx, my = logical_pos
@@ -532,11 +439,12 @@ while run:
                         if tab_rect.collidepoint(mx, my):
                             settings_tab = tab_key
                             awaiting_keybind_action = None
+                            settings_scroll = 0
                             break
                     for option_rect, option_resolution in settings_option_rects:
                         if settings_tab == 'resolution' and option_rect.collidepoint(mx, my):
                             apply_resolution(option_resolution)
-                            viewport_rect = get_viewport_rect(window)
+                            viewport_rect = get_viewport_rect(window, WIDTH, HEIGHT)
                             awaiting_keybind_action = None
                             break
                     for action_rect, action_name in settings_action_rects:
@@ -547,7 +455,7 @@ while run:
           
             structure_placed = False
 
-            if not game_won and placing_tower_type in ['physical', 'magic', 'ice'] and can_place_tower(grid, gx, gy, towers):
+            if not game_won and placing_tower_type in ['physical', 'magic', 'ice', 'executioner'] and can_place_tower(grid, gx, gy, towers, TILE, GRID_W, GRID_H):
                 cost = TOWER_COSTS[placing_tower_type]
                 if money >= cost:
                     tower_pos = pygame.Vector2(gx * TILE + TILE // 2, gy * TILE + TILE // 2)
@@ -557,17 +465,8 @@ while run:
                     towers.append(tower)
                     money -= cost
                     structure_placed = True
-            elif not game_won and placing_tower_type == 'sentinel' and can_place_tower(grid, gx, gy, towers):
-                if money >= SENTINEL_COST:
-                    tower_pos = pygame.Vector2(gx * TILE + TILE // 2, gy * TILE + TILE // 2)
-                    sentinel = Sentinel(tower_pos)
-                    sentinel.upgrade_spent = 0
-                    sentinel.build_cost = SENTINEL_COST
-                    towers.append(sentinel)
-                    money -= SENTINEL_COST
-                    structure_placed = True
             elif not game_won and placing_tower_type in ['fire', 'spikes']:
-                if can_place_trap(grid, gx, gy, towers, traps):
+                if can_place_trap(grid, gx, gy, towers, traps, GRID_W, GRID_H, TILE):
                     cost = TRAP_COSTS.get(placing_tower_type, 0)
                     if money >= cost:
                         trap = Trap((gx, gy), placing_tower_type)
@@ -597,6 +496,8 @@ while run:
         elif event.type == pygame.MOUSEWHEEL:
             if paused and show_guide and guide_page != 'menu':
                 guide_scroll = max(0, guide_scroll - event.y * 30)
+            elif paused and show_settings:
+                settings_scroll = max(0, min(settings_max_scroll, settings_scroll - event.y * 30))
 
     if paused:
         for t in towers:
@@ -611,7 +512,7 @@ while run:
         for e in enemies:
             e.draw(screen)
         
-        combined_costs = {**TOWER_COSTS, **TRAP_COSTS, 'sentinel': SENTINEL_COST}
+        combined_costs = {**TOWER_COSTS, **TRAP_COSTS}
         draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_type, tower_costs=combined_costs, game_speed=game_speed, selected_structure=selected_tower)
         
         if show_guide:
@@ -621,6 +522,8 @@ while run:
             settings_option_rects = []
             settings_tab_rects = []
             settings_action_rects = []
+            settings_scroll = 0
+            settings_max_scroll = 0
         elif show_settings:
             keybind_display = {action: pretty_key_name(code) for action, code in keybind_codes.items()}
             settings_panel = draw_settings_popup(
@@ -631,10 +534,14 @@ while run:
                 settings_tab=settings_tab,
                 keybind_display=keybind_display,
                 waiting_action=awaiting_keybind_action,
+                scroll_offset=settings_scroll,
             )
             settings_tab_rects = settings_panel.get('tabs', [])
             settings_option_rects = settings_panel.get('options', [])
             settings_action_rects = settings_panel.get('actions', [])
+            settings_max_scroll = settings_panel.get('max_scroll', 0)
+            if settings_scroll > settings_max_scroll:
+                settings_scroll = settings_max_scroll
         else:
             draw_pause(
                 screen,
@@ -645,6 +552,8 @@ while run:
             settings_option_rects = []
             settings_tab_rects = []
             settings_action_rects = []
+            settings_scroll = 0
+            settings_max_scroll = 0
         
         if selected_tower and not show_guide and not show_settings:
             panel_info = draw_upgrade_ui(screen, font, selected_tower, money)
@@ -653,12 +562,12 @@ while run:
         else:
             targeting_mode_rects = {}
             sell_button_rect = None
-        viewport_rect = present_frame()
+        viewport_rect = present_frame(window, screen, WIDTH, HEIGHT)
         continue
 
     if wave_enemies_left == 0 and len(enemies) == 0 and not game_won and not pending_spawns:
         if wave > 0 and last_interest_wave != wave:
-            interest = min(200, int(money * 0.05))
+            interest = calculate_interest(money)
             money += interest
             last_interest_wave = wave
 
@@ -681,7 +590,7 @@ while run:
             e.draw(screen)
 
         game_over_play_again_rect, game_over_exit_rect = draw_game_over(screen, font)
-        viewport_rect = present_frame()
+        viewport_rect = present_frame(window, screen, WIDTH, HEIGHT)
         continue
 
     if game_won:
@@ -698,7 +607,7 @@ while run:
             e.draw(screen)
         
         victory_play_again_rect, victory_exit_rect = draw_victory(screen, font)
-        viewport_rect = present_frame()
+        viewport_rect = present_frame(window, screen, WIDTH, HEIGHT)
         continue
 
     if not paused:
@@ -716,6 +625,10 @@ while run:
                         offset_y = random.uniform(-4.0, 4.0)
                         enemy.pos.x += offset_x
                         enemy.pos.y += offset_y
+                        wave_swarm_spawn_count += 1
+                        apply_spawn_scaling(enemy, wave, swarm_spawn_index=wave_swarm_spawn_count)
+                    else:
+                        apply_spawn_scaling(enemy, wave)
                     enemies.append(enemy)
 
         spawn_interval = get_spawn_interval(wave)
@@ -742,7 +655,9 @@ while run:
                         })
                     wave_enemies_left -= burst_count
             else:
-                enemies.append(Enemy(grid, spawn, GOAL_GRID, etype, scale=enemy_scale))
+                enemy = Enemy(grid, spawn, GOAL_GRID, etype, scale=enemy_scale)
+                apply_spawn_scaling(enemy, wave)
+                enemies.append(enemy)
                 wave_enemies_left -= 1
             wave_timer = 0
         
@@ -820,7 +735,7 @@ while run:
         draw_boss_spawn_popup(screen, font, boss_type)
         boss_popup_counter -= 1
     
-    combined_costs = {**TOWER_COSTS, **TRAP_COSTS, 'sentinel': SENTINEL_COST}
+    combined_costs = {**TOWER_COSTS, **TRAP_COSTS}
     draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_type, tower_costs=combined_costs, game_speed=game_speed, selected_structure=selected_tower)
     
     if selected_tower:
@@ -831,7 +746,7 @@ while run:
         targeting_mode_rects = {}
         sell_button_rect = None
 
-    viewport_rect = present_frame()
+    viewport_rect = present_frame(window, screen, WIDTH, HEIGHT)
 
 pygame.quit()
 sys.exit()

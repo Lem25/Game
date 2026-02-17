@@ -17,10 +17,13 @@ class Projectile:
         self.tower = tower
         self.speed = 300
         self.size = 4
-        self.color = (0, 100, 255) if tower_type == 'physical' else (148, 0, 211)
+        self.color = (0, 100, 255) if tower_type in ('physical', 'executioner') else (148, 0, 211)
         self.angle = 0
         self.bounces_left = 0
         self.hit_enemies = set()
+        self.executioner_mark = False
+        self.executioner_percent = False
+        self.executioner_pierce = False
 
         if tower and hasattr(tower, 'bounce_enabled') and tower.bounce_enabled:
             self.bounces_left = 1
@@ -34,8 +37,62 @@ class Projectile:
         if get_asset:
             if tower_type == 'physical':
                 self.sprite = get_asset('arrow_proj', size=12)
+            elif tower_type == 'executioner':
+                self.sprite = get_asset('arrow_proj', size=12)
             else:
                 self.sprite = get_asset('missile_proj', size=12)
+
+    def _apply_direct_damage(self, enemy, damage_value):
+        if self.tower and hasattr(self.tower, 'armor_pierce') and self.tower.armor_pierce > 0:
+            original_resist = enemy.resist_phys if self.dmg_type == 'physical' else enemy.resist_magic
+            effective_resist = max(0, original_resist - self.tower.armor_pierce)
+            enemy.take_damage(damage_value, self.dmg_type, source='projectile', resist_override=effective_resist)
+        else:
+            enemy.take_damage(damage_value, self.dmg_type, source='projectile')
+
+    def _apply_executioner_effects(self, enemy):
+        if self.executioner_mark and hasattr(enemy, 'apply_mark'):
+            enemy.apply_mark(4.0, 0.2)
+
+        if self.executioner_percent:
+            bonus = enemy.max_hp * 0.06
+            if getattr(enemy, 'is_boss', False):
+                bonus *= 0.4
+            enemy.take_damage(bonus, self.dmg_type, source='projectile')
+
+    def _apply_railshot(self, enemies, hit_target, direction):
+        if not enemies:
+            return
+
+        base_dir = pygame.Vector2(direction)
+        if base_dir.length_squared() <= 0.000001:
+            return
+        base_dir = base_dir.normalize()
+
+        candidates = []
+        for enemy in enemies:
+            if enemy is hit_target or enemy.hp <= 0 or id(enemy) in self.hit_enemies:
+                continue
+            rel = enemy.pos - self.pos
+            forward = rel.dot(base_dir)
+            if forward <= 0 or forward > 320:
+                continue
+            lateral = abs(rel.x * base_dir.y - rel.y * base_dir.x)
+            if lateral <= 26:
+                candidates.append((forward, enemy))
+
+        candidates.sort(key=lambda item: item[0])
+        pierce_scale = 0.7
+        hits = 0
+        for _, enemy in candidates:
+            if hits >= 3:
+                break
+            scaled_damage = self.dmg * pierce_scale
+            self._apply_direct_damage(enemy, scaled_damage)
+            self._apply_executioner_effects(enemy)
+            self.hit_enemies.add(id(enemy))
+            pierce_scale *= 0.7
+            hits += 1
 
     def update(self, dt, enemies=None):
         if not self.target:
@@ -46,16 +103,13 @@ class Projectile:
 
         if distance < self.speed * dt:
             self.hit_enemies.add(id(self.target))
+            hit_direction = pygame.Vector2(direction) if distance > 0 else pygame.Vector2(1, 0)
             
             if self.tower_type == 'ice':
                 self.target.add_slow(2)
             else:
-                if self.tower and hasattr(self.tower, 'armor_pierce') and self.tower.armor_pierce > 0:
-                    original_resist = self.target.resist_phys if self.dmg_type == 'physical' else self.target.resist_magic
-                    effective_resist = max(0, original_resist - self.tower.armor_pierce)
-                    self.target.take_damage(self.dmg, self.dmg_type, source='projectile', resist_override=effective_resist)
-                else:
-                    self.target.take_damage(self.dmg, self.dmg_type, source='projectile')
+                self._apply_direct_damage(self.target, self.dmg)
+                self._apply_executioner_effects(self.target)
 
                 if self.tower and hasattr(self.tower, 'shatter_bonus') and self.tower.shatter_bonus > 0:
                     if hasattr(self.target, 'slow_stacks') and self.target.slow_stacks >= 10:
@@ -71,6 +125,9 @@ class Projectile:
                     for enemy in enemies:
                         if enemy != self.target and self.target.pos.distance_to(enemy.pos) < aoe_radius:
                             enemy.take_damage(self.dmg * 0.5, self.dmg_type, source='projectile')
+
+                if self.executioner_pierce:
+                    self._apply_railshot(enemies, self.target, hit_direction)
 
             if self.bounces_left > 0 and enemies:
                 self.bounces_left -= 1
@@ -130,14 +187,19 @@ class ProjectilePool:
             projectile.tower = tower
             projectile.speed = 300
             projectile.size = 4
-            projectile.color = (0, 100, 255) if tower_type == 'physical' else (148, 0, 211)
+            projectile.color = (0, 100, 255) if tower_type in ('physical', 'executioner') else (148, 0, 211)
             projectile.angle = 0
             projectile.bounces_left = 1 if tower and hasattr(tower, 'bounce_enabled') and tower.bounce_enabled else 0
             projectile.hit_enemies = set()
             projectile.is_chain = bool(tower and hasattr(tower, 'chain_enabled') and tower.chain_enabled)
+            projectile.executioner_mark = False
+            projectile.executioner_percent = False
+            projectile.executioner_pierce = False
             projectile.sprite = None
             if get_asset:
                 if tower_type == 'physical':
+                    projectile.sprite = get_asset('arrow_proj', size=12)
+                elif tower_type == 'executioner':
                     projectile.sprite = get_asset('arrow_proj', size=12)
                 else:
                     projectile.sprite = get_asset('missile_proj', size=12)

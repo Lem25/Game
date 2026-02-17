@@ -76,6 +76,8 @@ class Enemy:
         self.burning = False
         self.status_effects = {}
         self.impaled_time = 0.0
+        self.is_boss = enemy_type in ('minotaur_boss', 'demon_boss')
+        self.freeze_resist = 0.0
         
         self.repath()
 
@@ -115,6 +117,9 @@ class Enemy:
 
         burn = self.status_effects.get('burn')
         self.burning = bool(burn and burn.active)
+
+        mark = self.status_effects.get('mark')
+        self.damage_taken_mult = (1.0 + mark.strength) if mark and mark.active else 1.0
 
         bleed = self.status_effects.get('bleed')
         bleeding = bool(bleed and bleed.active)
@@ -171,7 +176,10 @@ class Enemy:
             return
 
         if self.slow_stacks >= 10 and self.freeze_immunity_timer <= 0 and not movement_impairment_immune:
-            self.status_effects['frozen'] = StatusEffect('frozen', 1.5, 1.0)
+            base_duration = 1.5
+            resist = max(0.0, min(0.99, getattr(self, 'freeze_resist', 0.0)))
+            final_duration = max(base_duration * 0.2, base_duration * (1.0 - resist))
+            self.status_effects['frozen'] = StatusEffect('frozen', final_duration, 1.0)
             self.freeze_immunity_timer = 2.0
             if 'slow' in self.status_effects:
                 del self.status_effects['slow']
@@ -216,6 +224,7 @@ class Enemy:
             resist = self.resist_phys if dmg_type == 'physical' else self.resist_magic
 
         actual_dmg = max(0.0, incoming_dmg * (1 - resist))
+        actual_dmg *= getattr(self, 'damage_taken_mult', 1.0)
 
         if self.shield_hp > 0 and actual_dmg > 0:
             absorbed = min(self.shield_hp, actual_dmg)
@@ -377,6 +386,9 @@ class Enemy:
 
     def apply_bleed(self, duration=3.0, strength=1.0):
         self._set_status('bleed', duration, strength, stack_strength=False)
+
+    def apply_mark(self, duration=4.0, strength=0.2):
+        self._set_status('mark', duration, strength, stack_strength=False)
 
     def draw(self, screen):
         sprite = None

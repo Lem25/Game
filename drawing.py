@@ -73,8 +73,8 @@ def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_t
     physical_cost = tower_costs.get('physical', 50)
     magic_cost = tower_costs.get('magic', 60)
     ice_cost = tower_costs.get('ice', 70)
-    sentinel_cost = tower_costs.get('sentinel', 80)
-    tower_types_line = f"Archer Tower ${physical_cost}  |  Magic ${magic_cost}  |  Ice ${ice_cost}  |  Sentinel ${sentinel_cost}"
+    executioner_cost = tower_costs.get('executioner', 140)
+    tower_types_line = f"Archer ${physical_cost}  |  Magic ${magic_cost}  |  Ice ${ice_cost}  |  Exec ${executioner_cost}"
     towers_surf = font.render(tower_types_line, True, WHITE)
     screen.blit(towers_surf, (20, box_y + 55))
     
@@ -82,9 +82,9 @@ def draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_t
         'physical': 'ARCHER TOWER',
         'magic': 'MAGIC',
         'ice': 'ICE',
+        'executioner': 'EXECUTIONER',
         'fire': 'FIRE',
         'spikes': 'SPIKES',
-        'sentinel': 'SENTINEL',
     }
     selected_text = f"Selected: {selected_labels.get(placing_tower_type, placing_tower_type.upper())}"
     selected_surf = font.render(selected_text, True, (100, 200, 255))
@@ -201,6 +201,7 @@ def draw_settings_popup(
     settings_tab='resolution',
     keybind_display=None,
     waiting_action=None,
+    scroll_offset=0,
 ):
     popup_width = 520
     popup_height = 420
@@ -242,25 +243,40 @@ def draw_settings_popup(
 
     option_rects = []
     keybind_action_rects = []
+    content_area = pygame.Rect(30, 160, popup_width - 60, popup_height - 190)
+    pygame.draw.rect(popup_surface, (22, 28, 42, 230), content_area)
+    pygame.draw.rect(popup_surface, (70, 90, 130, 220), content_area, 1)
+
+    content_total_height = 0
     if settings_tab == 'resolution':
         tab_hint = font.render("Click a resolution option to apply", True, (185, 210, 235))
         popup_surface.blit(tab_hint, (popup_width // 2 - tab_hint.get_width() // 2, 132))
 
-        y = 168
+        row_height = 38
+        row_spacing = 4
+        y = content_area.y + 8
+        content_total_height = len(resolution_options) * (row_height + row_spacing)
+        max_scroll = max(0, content_total_height - (content_area.height - 12))
+        scroll_offset = max(0, min(scroll_offset, max_scroll))
+
+        clip_rect = popup_surface.get_clip()
+        popup_surface.set_clip(content_area)
         for idx, res in enumerate(resolution_options):
             label = f"{idx + 1}. {res[0]} x {res[1]}"
             is_current = tuple(current_resolution) == tuple(res)
             text_color = (120, 255, 120) if is_current else (230, 230, 230)
             text = font.render(label, True, text_color)
 
-            row_rect = pygame.Rect(60, y - 4, popup_width - 120, 38)
+            row_rect = pygame.Rect(60, y - 4 - scroll_offset, popup_width - 120, row_height)
             border = (80, 220, 120) if is_current else (90, 120, 170)
             pygame.draw.rect(popup_surface, (30, 35, 50, 220), row_rect)
             pygame.draw.rect(popup_surface, border, row_rect, 2)
             popup_surface.blit(text, (row_rect.x + 14, row_rect.y + 8))
 
-            option_rects.append((pygame.Rect(popup_x + row_rect.x, popup_y + row_rect.y, row_rect.width, row_rect.height), res))
-            y += 42
+            if row_rect.colliderect(content_area):
+                option_rects.append((pygame.Rect(popup_x + row_rect.x, popup_y + row_rect.y, row_rect.width, row_rect.height), res))
+            y += row_height + row_spacing
+        popup_surface.set_clip(clip_rect)
     else:
         keybind_display = keybind_display or {}
         action_rows = [
@@ -270,9 +286,9 @@ def draw_settings_popup(
             ('build_physical', 'Build Archer Tower'),
             ('build_magic', 'Build Magic Tower'),
             ('build_ice', 'Build Ice Tower'),
+            ('build_executioner', 'Build Executioner'),
             ('build_fire', 'Build Fire Trap'),
             ('build_spikes', 'Build Spike Trap'),
-            ('build_sentinel', 'Build Sentinel'),
             ('upgrade_path1', 'Upgrade Path 1'),
             ('upgrade_path2', 'Upgrade Path 2'),
             ('sell_structure', 'Sell Structure'),
@@ -286,9 +302,17 @@ def draw_settings_popup(
             tab_hint = font.render("Click action row to change keybind", True, (185, 210, 235))
         popup_surface.blit(tab_hint, (popup_width // 2 - tab_hint.get_width() // 2, 132))
 
-        y = 166
+        row_height = 26
+        row_spacing = 3
+        y = content_area.y + 6
+        content_total_height = len(action_rows) * (row_height + row_spacing)
+        max_scroll = max(0, content_total_height - (content_area.height - 10))
+        scroll_offset = max(0, min(scroll_offset, max_scroll))
+
+        clip_rect = popup_surface.get_clip()
+        popup_surface.set_clip(content_area)
         for action, label in action_rows:
-            row_rect = pygame.Rect(44, y, popup_width - 88, 26)
+            row_rect = pygame.Rect(44, y - scroll_offset, popup_width - 88, row_height)
             is_waiting = waiting_action == action
             border = (255, 210, 120) if is_waiting else (90, 120, 170)
             fill = (45, 35, 25, 230) if is_waiting else (30, 35, 50, 220)
@@ -301,11 +325,28 @@ def draw_settings_popup(
             popup_surface.blit(label_text, (row_rect.x + 10, row_rect.y + 4))
             popup_surface.blit(key_text, (row_rect.right - key_text.get_width() - 10, row_rect.y + 4))
 
-            keybind_action_rects.append((pygame.Rect(popup_x + row_rect.x, popup_y + row_rect.y, row_rect.width, row_rect.height), action))
-            y += 29
+            if row_rect.colliderect(content_area):
+                keybind_action_rects.append((pygame.Rect(popup_x + row_rect.x, popup_y + row_rect.y, row_rect.width, row_rect.height), action))
+            y += row_height + row_spacing
+        popup_surface.set_clip(clip_rect)
+
+    if settings_tab == 'resolution':
+        max_scroll = max(0, content_total_height - (content_area.height - 12))
+    else:
+        max_scroll = max(0, content_total_height - (content_area.height - 10))
+
+    if max_scroll > 0:
+        track_rect = pygame.Rect(content_area.right - 8, content_area.y + 4, 4, content_area.height - 8)
+        pygame.draw.rect(popup_surface, (60, 70, 90), track_rect, border_radius=2)
+
+        thumb_height = max(24, int(track_rect.height * (content_area.height / max(content_total_height, 1))))
+        thumb_travel = track_rect.height - thumb_height
+        thumb_y = track_rect.y + int((scroll_offset / max_scroll) * thumb_travel)
+        thumb_rect = pygame.Rect(track_rect.x, thumb_y, track_rect.width, thumb_height)
+        pygame.draw.rect(popup_surface, (150, 180, 255), thumb_rect, border_radius=2)
 
     screen.blit(popup_surface, (popup_x, popup_y))
-    return {'tabs': tab_rects, 'options': option_rects, 'actions': keybind_action_rects}
+    return {'tabs': tab_rects, 'options': option_rects, 'actions': keybind_action_rects, 'max_scroll': max_scroll}
 
 def draw_victory(screen, font):
     screen.fill((0, 100, 0))
@@ -344,7 +385,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
 
         sections = [
             "[1] Towers & Upgrades",
-            "[2] Traps & Sentinels",
+            "[2] Traps & Defense",
             "[3] Enemies & Bosses",
             "[4] Game Mechanics",
             "[5] Strategy Tips",
@@ -402,48 +443,48 @@ def draw_guide(screen, font, page, scroll_offset=0):
             current_x += item_width + spacing
 
         content = []
-        line_height = 24
-        content_font = pygame.font.SysFont("arial", 13)
+        line_height = 26
+        content_font = pygame.font.SysFont("arial", 14)
 
         if page == 'towers':
             content = [
-                "ARCHER TOWER - $60",
+                "ARCHER TOWER - $55",
                 "  Path 1: Sniper ($120) -> Elite ($240)",
                 "    Sniper: +Range, +Damage | Elite: Ignores 60% armor",
                 "  Path 2: Volley ($110) -> Bounce ($220)",
                 "    Volley: 4 arrows | Bounce: Arrows bounce once",
                 "",
-                "MAGIC TOWER - $70",
+                "MAGIC TOWER - $65",
                 "  Path 1: Bolt ($140) -> Arc ($280)",
                 "    Bolt: Chain to 3 enemies | Arc: Chain 4 + spread effects",
                 "  Path 2: Nova ($160) -> Vortex ($320)",
                 "    Nova: AoE damage | Vortex: Pull enemies + bigger AoE",
                 "",
-                "ICE TOWER - $80",
+                "ICE TOWER - $75",
                 "  Path 1: Glacial ($130) -> Shatter ($260)",
                 "    Glacial: Faster freeze pulses | Shatter: +70% dmg to frozen",
                 "  Path 2: Blizzard ($150) -> Absolute Zero ($300)",
                 "    Blizzard: Slow all enemies in range | Absolute Zero: Focus hard-freeze",
                 "",
-                "SENTINEL TOWER - $90",
-                "  Auto-activates barrier when enemies approach (6s, 10s CD)",
-                "  Path 1: Barrier ($100) -> Reflect ($200)",
-                "    Barrier: 8s duration | Reflect: 15 DPS to blocked enemies",
-                "  Path 2: Pulse ($110) -> Overload ($220)",
-                "    Pulse: Stronger repel | Overload: Explode for 150 AoE"
+                "EXECUTIONER TOWER - $140",
+                "  Slow single-target anti-boss tower",
+                "  Path 1: Mark ($160) -> Annihilate ($320)",
+                "    Mark: Target takes +20% damage for 4s",
+                "    Annihilate: +6% max HP bonus damage (bosses resist 60%)",
+                "  Path 2: Scope ($150) -> Railshot ($300)",
+                "    Scope: +35% range, -15% cooldown",
+                "    Railshot: Pierces up to 4 enemies, 70% damage falloff per hit",
             ]
-            line_height = 24
-            content_font = pygame.font.SysFont("arial", 13)
         elif page == 'traps':
             content = [
-                "FIRE TRAP - $45 (Place on path)",
+                "FIRE TRAP - $42 (Place on path)",
                 "  Continuous damage in 3x3 area, strongest at center",
                 "  Path 1: Inferno ($80) -> Phoenix ($180)",
                 "    Inferno: Bigger aura, +DPS | Phoenix: Revive on destroy",
                 "  Path 2: Oil Slick ($90) -> Detonate ($200)",
                 "    Oil Slick: Burn spreads | Detonate: Explode on kill (40 AoE)",
                 "",
-                "SPIKE TRAP - $35 (Place on path)",
+                "SPIKE TRAP - $32 (Place on path)",
                 "  Damages enemies on tile every 1 second",
                 "  Path 1: Barbed ($70) -> Impale ($160)",
                 "    Barbed: Bleed DoT (5 DPS) | Impale: Hold enemy 2s",
@@ -453,8 +494,6 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "TIP: Traps placed on enemy paths deal damage automatically!",
                 "Combine with towers for maximum efficiency."
             ]
-            line_height = 30
-            content_font = font
         elif page == 'enemies':
             content = [
                 "REGULAR ENEMIES:",
@@ -479,27 +518,30 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "REWARDS:",
                 "  Kill any enemy: 1.5x their base reward",
                 "  Example: Tank ($24) gives $36 on kill",
+                "  Large swarm bursts have reduced bonus rewards",
                 "  Enemies scale with wave count for harder challenges",
                 "",
                 "ENEMY ABILITIES:",
                 "  - Projectiles are reduced by type resistances",
                 "  - Bosses use phase-based mechanics",
-                "  - All enemies gain HP scaling on higher waves"
+                "  - Freeze resistance increases with wave",
+                "  - Bosses have extra freeze resistance"
             ]
-            line_height = 26
-            content_font = pygame.font.SysFont("arial", 13)
         elif page == 'mechanics':
             content = [
                 "PLACING STRUCTURES:",
                 "  Grid: 20x20 tiles, 40px per tile",
                 "  Towers: Place on floor tiles",
                 "  Traps: Place on path tiles",
-                "  Sentinel: Place on floor tiles, auto-activates near enemies",
                 "",
                 "UPGRADES:",
                 "  Click any tower/trap and choose one upgrade path",
                 "  Once you pick a path, you can't upgrade the other!",
                 "  Each path has 2 tiers with powerful abilities",
+                "",
+                "ECONOMY:",
+                "  Interest: 5% up to $500, then 3%, then 2% (cap $150)",
+                "  Selling returns 70% of build + upgrades spent",
                 "",
                 "MATCH END:",
                 "  Victory and Game Over both show Play Again / Exit buttons",
@@ -511,22 +553,20 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "",
                 "STATUS EFFECTS:",
                 "  Slow: Reduces movement speed (8% per stack)",
-                "  Frozen: Enemy can't move (10+ slow stacks for 3s)",
+                "  Frozen: Enemy can't move (duration scales by freeze resist)",
                 "  Bleed: Damage over time from Barbed spikes",
                 "  Burn: Fire damage spreads with Oil Slick upgrade",
                 "  Impale: Enemy held in place for 2 seconds"
             ]
-            line_height = 24
-            content_font = pygame.font.SysFont("arial", 13)
         elif page == 'keybinds':
             content = [
                 "GAMEPLAY KEYBINDS:",
                 "  [1] Archer Tower build mode",
                 "  [2] Magic Tower build mode",
                 "  [3] Ice Tower build mode",
+                "  [6] Executioner build mode",
                 "  [4] Fire Trap build mode",
                 "  [5] Spike Trap build mode",
-                "  [6] Sentinel build mode",
                 "",
                 "SELECTED STRUCTURE:",
                 "  [Q] Upgrade Path 1",
@@ -544,18 +584,14 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "  [UP]/[DOWN] or Wheel: Scroll",
                 "  [BACKSPACE] Back to guide menu / close guide"
             ]
-            line_height = 24
-            content_font = pygame.font.SysFont("arial", 13)
         elif page == 'strategy':
             content = [
                 "  - Mix damage types to handle resistant enemies",
                 "  - Ice towers slow, letting others deal more damage",
                 "  - Place traps at choke points for max efficiency",
                 "  - Save money for upgrades - they're very powerful!",
-                "  - Sentinels block paths temporarily for emergency defense"
+                "  - Keep a reserve for emergency upgrades during boss waves"
             ]
-            line_height = 34
-            content_font = pygame.font.SysFont("arial", 15)
 
         content_area = pygame.Rect(20, 80, guide_width - 40, guide_height - 130)
         pygame.draw.rect(guide_surf, (30, 30, 55, 255), content_area)

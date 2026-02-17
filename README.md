@@ -3,7 +3,7 @@
 This document explains the entire project in depth: architecture, runtime flow, each module, and every function/method.
 
 > **Last Updated:** February 2026  
-> Includes wave templates, swarm burst groups, per-tower targeting UI, sell-in-panel economy flow, speed cycling, unified status effects, and late-wave performance helpers.
+> Includes wave templates, swarm burst groups, per-tower targeting UI, executioner tower, tiered economy scaling, freeze-resist scaling, and extracted utility modules.
 
 ---
 
@@ -14,10 +14,10 @@ This document explains the entire project in depth: architecture, runtime flow, 
 Core idea:
 - Enemies spawn from lane start points.
 - They pathfind to a central goal tile.
-- Player places towers, traps, and sentinels to stop them.
+- Player places towers and traps to stop them.
 - Every 5 waves, the map may expand with a new lane.
 
-Primary game loop and orchestration live in `main.py`; everything else is modularized by domain (rendering, enemies, towers, traps, pathfinding, assets, constants).
+Primary game loop and orchestration live in `main.py`; gameplay helpers are split into focused modules (`economy.py`, `spawn_scaling.py`, `viewport_utils.py`, `placement_rules.py`, `wave_progression.py`, `keybind_utils.py`) to keep logic maintainable.
 
 ---
 
@@ -79,25 +79,6 @@ Game entrypoint. Owns global game state, loop timing, input handling, spawn logi
 - Enemy composition ramps by early/mid/late template pools.
 - Bosses still spawn every 5th wave as final wave enemy.
 
-#### `can_place_tower(grid, gx, gy, towers)`
-**What it does**
-- Validates whether a tower/sentinel can be placed at tile `(gx, gy)`.
-
-**Rules**
-- Tile must be inside grid bounds.
-- Tile must be buildable (`grid[y][x] == 0`).
-- No existing tower may occupy within roughly 1 tile radius of target center.
-
-#### `can_place_trap(grid, gx, gy, towers, traps)`
-**What it does**
-- Validates trap placement at tile `(gx, gy)`.
-
-**Rules**
-- Tile must be inside bounds.
-- Tile must be path (`grid[y][x] == 2`).
-- Cannot overlap a tower.
-- Cannot overlap an existing trap.
-
 #### `next_wave()`
 **What it does**
 - Advances game to the next wave and prepares spawn counts/mechanics.
@@ -120,14 +101,84 @@ Game entrypoint. Owns global game state, loop timing, input handling, spawn logi
   - Alternates minotaur and demon on 5/10 cadence.
 - Supports speed cycle (`C`: 1x -> 2x -> 3x -> 1x).
 - Supports per-selected sell flow (button in panel and hotkey fallback).
+- Uses tiered interest and spawn-time balance scaling via extracted helper modules.
 - Updates entities in deterministic order:
   1. enemies logic
-  2. towers (and sentinel) update
+  2. towers update
   3. projectile update/cleanup
   4. traps update
   5. enemy resolution (goal reached/dead)
 - Draw order:
   grid -> towers -> projectiles -> traps -> enemies -> overlays/UI.
+
+---
+
+## `keybind_utils.py`
+
+### Purpose
+Central keybind normalization and mapping helpers.
+
+### Functions
+- `normalize_key_name(name)`
+- `load_keybind_maps(settings_payload)`
+- `pretty_key_name(key_code)`
+
+---
+
+## `economy.py`
+
+### Purpose
+Central economy helpers for structure valuation and interest.
+
+### Functions
+- `get_structure_build_cost(structure)`
+- `get_structure_sell_value(structure)` (70% refund)
+- `calculate_interest(money)` (5%/3%/2% tiers with cap)
+
+---
+
+## `spawn_scaling.py`
+
+### Purpose
+Spawn-time balancing helpers for freeze resistance and swarm reward anti-farm scaling.
+
+### Functions
+- `compute_freeze_resist(wave)`
+- `compute_swarm_reward(base_reward, swarm_spawn_index)`
+- `apply_spawn_scaling(enemy, wave_number, swarm_spawn_index=None)`
+
+---
+
+## `viewport_utils.py`
+
+### Purpose
+Window scaling and coordinate conversion helpers.
+
+### Functions
+- `get_viewport_rect(surface, base_width, base_height)`
+- `present_frame(window, screen, base_width, base_height)`
+- `window_to_game_pos(pos, viewport, base_width, base_height)`
+
+---
+
+## `placement_rules.py`
+
+### Purpose
+Placement validation rules for towers and traps.
+
+### Functions
+- `can_place_tower(grid, gx, gy, towers, tile_size, grid_width, grid_height)`
+- `can_place_trap(grid, gx, gy, towers, traps, grid_width, grid_height, tile_size)`
+
+---
+
+## `wave_progression.py`
+
+### Purpose
+Wave-size curve helper used by `main.py`.
+
+### Functions
+- `get_wave_enemy_count(wave, target_wave)`
 
 ---
 
@@ -144,7 +195,7 @@ Central balancing and configuration values.
 - Timing:
   - `FPS`
 - Economy:
-  - `TOWER_COSTS`, `TRAP_COSTS`, `SENTINEL_COST`
+  - `TOWER_COSTS`, `TRAP_COSTS`
 - Enemy tuning:
   - `ENEMY_STATS` (HP/speed/resists/size/reward per enemy type)
 - Trap tuning:
@@ -269,7 +320,7 @@ Draws in-game documentation overlay:
 - `max_scroll` for caller-side clamping.
 
 #### `draw_upgrade_ui(screen, font, selected_structure, money)`
-Draws floating panel near selected tower/trap/sentinel with:
+Draws floating panel near selected tower/trap with:
 - path upgrades
 - per-tower targeting buttons (where supported)
 - sell button with current refund value
@@ -350,7 +401,6 @@ Owns wave-phase composition, swarm burst sizing, and spawn-interval pacing.
 ### Functions
 - `get_wave_template(wave)`: returns pool + swarm chance + boss flag.
 - `choose_enemy_type(wave, enemies_alive, wave_enemies_left=None)`: chooses enemy type with swarm constraints.
-- `get_swarm_size()`: returns swarm burst size in `[10, 15]`.
 - `get_spawn_interval(wave)`: returns per-wave spawn cadence for smoother difficulty ramp.
 
 ---
@@ -471,13 +521,13 @@ Draws sprite or fallback circle, plus:
 ## `tower.py`
 
 ### Purpose
-Implements all non-sentinel tower logic, upgrades, targeting, projectile generation, and visual range indicator.
+Implements tower logic, upgrades, targeting, projectile generation, and visual range indicator.
 
 ### Class: `Tower`
 
 #### `__init__(self, pos, ttype)`
 Initializes base type data:
-- tower category (`physical`, `magic`, `ice`)
+- tower category (`physical`, `magic`, `ice`, `executioner`)
 - base damage/range/color/name
 - cooldown and size
 - upgrade-path state and feature flags
@@ -534,7 +584,7 @@ Initializes trap tile placement, base stats from `TRAP_STATS`, and upgrade flags
 Returns next upgrade tuple `(name, cost)` for trap and path.
 
 #### `can_upgrade(self, path)`
-Path-lock validation (same rule as towers/sentinel).
+Path-lock validation (same rule as towers).
 
 #### `upgrade(self, path)`
 Applies upgrade effects:
@@ -571,63 +621,6 @@ Main trap tick:
 
 #### `draw(self, screen)`
 Draws trap sprite or fallback rectangle on tile.
-
----
-
-## `sentinel.py`
-
-### Purpose
-Defines a support tower that creates temporary barriers and utility control effects.
-
-### Class: `Sentinel`
-
-#### `__init__(self, pos)`
-Initializes tile anchor, barrier duration/cooldown/range, and upgrade flags.
-
-**Current baseline**
-- barrier duration: `6.0s`
-- barrier cooldown: `10.0s`
-
-#### `get_upgrade_info(self, path)`
-Returns next sentinel upgrade tuple `(name, cost)`.
-
-#### `can_upgrade(self, path)`
-Path-lock validation.
-
-#### `upgrade(self, path)`
-Applies sentinel path effects:
-- Path 1: longer barrier/range, then reflect DoT (`15 DPS`, magic)
-- Path 2: pulse knockback enable, then overload AoE on barrier expiry (`150` damage)
-
-#### `_apply_damage(self, enemy, amount, dmg_type)`
-Damage adapter (`take_damage` preferred).
-
-#### `_deactivate_barrier(self)`
-Turns barrier off and starts cooldown.
-
-#### `_handle_barrier_expire(self, enemies)`
-Runs overload AoE on expiry (if enabled), then deactivates.
-
-#### `_handle_barrier_block(self, enemies, dt)`
-If enemies occupy sentinel tile:
-- pushes them backward along radial direction
-- applies strong slow each tick via enemy slow system (`add_slow(2.5)`)
-- applies reflect DoT when unlocked.
-
-#### `_handle_pulse(self, enemies)`
-On pulse interval, knockbacks nearby enemies in radius.
-
-#### `_try_activate_barrier(self, enemies)`
-If not on cooldown, activates barrier when enemy enters range.
-
-#### `update(self, enemies, dt)`
-Main sentinel state machine:
-- cooldown decay
-- active barrier timing and behavior
-- activation checks while idle
-
-#### `draw(self, screen, selected=False)`
-Renders sentinel body, optional range, active barrier tile overlay, pulse ring, and timer/cooldown labels.
 
 ---
 
@@ -680,7 +673,7 @@ Draws beam line and endpoint glow marker.
 
 ## 4) Cross-Module Interaction Summary
 
-- `main.py` calls `Enemy.logic(...)`, `Tower.update(...)`, `Sentinel.update(...)`, `Trap.update(...)`, and projectile updates every frame.
+- `main.py` calls `Enemy.logic(...)`, `Tower.update(...)`, `Trap.update(...)`, and projectile updates every frame.
 - `Enemy.repath()` calls `pathfinding.astar(...)` against maze/path data.
 - `drawing.py` is pure render layer (no state mutation except local UI rect outputs).
 - `assets.py` is shared by drawing, enemies, towers, traps, and projectiles for sprite lookup.
@@ -691,7 +684,7 @@ Draws beam line and endpoint glow marker.
 ## 5) Input, Economy, and Progression Reference
 
 ### Input map
-- `1..6`: choose build type
+- `1..5`: choose build type
 - mouse click: place/select
 - `Q`, `E`: apply path upgrades to selected structure
 - `C`: cycle game speed (`1x -> 2x -> 3x -> 1x`)

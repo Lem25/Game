@@ -1,7 +1,7 @@
 {
   "resolution": [
-    800,
-    600
+    2560,
+    1009
   ],
   "keybinds": {
     "pause": "escape",
@@ -10,9 +10,9 @@
     "build_physical": "1",
     "build_magic": "2",
     "build_ice": "3",
+    "build_executioner": "6",
     "build_fire": "4",
     "build_spikes": "5",
-    "build_sentinel": "6",
     "upgrade_path1": "q",
     "upgrade_path2": "e",
     "sell_structure": "r",

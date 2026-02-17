@@ -4,11 +4,9 @@ GRID_W, GRID_H = 20, 20
 GAME_HEIGHT = 800
 FPS = 60
 
-TOWER_COSTS = {'physical': 60, 'magic': 70, 'ice': 80}
+TOWER_COSTS = {'physical': 55, 'magic': 65, 'ice': 75, 'executioner': 140}
 
-TRAP_COSTS = {'fire': 45, 'spikes': 35}
-
-SENTINEL_COST = 90
+TRAP_COSTS = {'fire': 42, 'spikes': 32}
 
 ENEMY_STATS = {
     'tank': {'max_hp': 200, 'speed': 0.58, 'resist_phys': 0.24, 'resist_magic': 0.24, 'size': 20, 'reward': 24},
@@ -27,4 +25,4 @@ TRAP_STATS = {
 }
 
 ENEMY_SCALE_WAVE_INTERVAL = 5
-ENEMY_SCALE_INCREMENT = 0.07
+ENEMY_SCALE_INCREMENT = 0.06

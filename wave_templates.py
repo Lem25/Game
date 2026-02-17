@@ -51,7 +51,7 @@ def choose_enemy_type(wave: int, enemies_alive, wave_enemies_left=None):
 
 def get_spawn_interval(wave: int):
     if wave <= 5:
-        return 1.75
+        return 1.8
     if wave <= 14:
-        return 1.45
-    return 1.2
+        return 1.5
+    return 1.25
