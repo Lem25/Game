@@ -344,6 +344,40 @@ while run:
                         app_state = 'main_menu'
                 elif app_state == 'progression' and event.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
                     app_state = 'main_menu'
+                elif app_state == 'guide':
+                    if event.key == pygame.K_1:
+                        guide_page = 'towers'
+                        guide_scroll = 0
+                    elif event.key == pygame.K_2:
+                        guide_page = 'traps'
+                        guide_scroll = 0
+                    elif event.key == pygame.K_3:
+                        guide_page = 'enemies'
+                        guide_scroll = 0
+                    elif event.key == pygame.K_4:
+                        guide_page = 'mechanics'
+                        guide_scroll = 0
+                    elif event.key == pygame.K_5:
+                        guide_page = 'strategy'
+                        guide_scroll = 0
+                    elif event.key == pygame.K_6:
+                        guide_page = 'keybinds'
+                        guide_scroll = 0
+                    elif event.key == pygame.K_7:
+                        guide_page = 'modifiers'
+                        guide_scroll = 0
+                    elif event.key == pygame.K_BACKSPACE:
+                        if guide_page != 'menu':
+                            guide_page = 'menu'
+                            guide_scroll = 0
+                        else:
+                            app_state = 'main_menu'
+                    elif event.key == pygame.K_ESCAPE:
+                        app_state = 'main_menu'
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        guide_scroll = max(0, guide_scroll - 40)
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        guide_scroll += 40
                 elif app_state == 'menu_settings':
                     if awaiting_keybind_action:
                         if event.key == pygame.K_ESCAPE:
@@ -374,6 +408,8 @@ while run:
             elif event.type == pygame.MOUSEWHEEL:
                 if app_state == 'progression':
                     progression_scroll = max(0, progression_scroll - event.y * 30)
+                elif app_state == 'guide' and guide_page != 'menu':
+                    guide_scroll = max(0, guide_scroll - event.y * 30)
                 elif app_state == 'menu_settings':
                     settings_scroll = max(0, min(settings_max_scroll, settings_scroll - event.y * 30))
             elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -387,6 +423,10 @@ while run:
                     if menu_button_rects.get('start') and menu_button_rects['start'].collidepoint(mx, my):
                         wave_select_input = ''
                         app_state = 'wave_select'
+                    elif menu_button_rects.get('guide') and menu_button_rects['guide'].collidepoint(mx, my):
+                        guide_page = 'menu'
+                        guide_scroll = 0
+                        app_state = 'guide'
                     elif menu_button_rects.get('progression') and menu_button_rects['progression'].collidepoint(mx, my):
                         app_state = 'progression'
                     elif menu_button_rects.get('settings') and menu_button_rects['settings'].collidepoint(mx, my):
@@ -443,6 +483,11 @@ while run:
             panel = draw_progression_screen(screen, font, progression, ordered_modifiers, progression_scroll)
             progression_back_rect = panel.get('back_rect')
             progression_scroll = min(progression_scroll, panel.get('max_scroll', 0))
+        elif app_state == 'guide':
+            screen.fill(DARK_GRAY)
+            max_scroll = draw_guide(screen, font, guide_page, guide_scroll)
+            if guide_scroll > max_scroll:
+                guide_scroll = max_scroll
         elif app_state == 'menu_settings':
             screen.fill(DARK_GRAY)
             keybind_display = {action: pretty_key_name(code) for action, code in keybind_codes.items()}
@@ -556,6 +601,9 @@ while run:
                     guide_scroll = 0
                 elif event.key == pygame.K_6:
                     guide_page = 'keybinds'
+                    guide_scroll = 0
+                elif event.key == pygame.K_7:
+                    guide_page = 'modifiers'
                     guide_scroll = 0
                 elif event.key == pygame.K_BACKSPACE:
                     if guide_page != 'menu':
