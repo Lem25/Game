@@ -3,7 +3,7 @@
 This document explains the entire project in depth: architecture, runtime flow, each module, and every function/method.
 
 > **Last Updated:** February 2026  
-> Includes wave templates, swarm burst groups, per-tower targeting UI, executioner tower, tiered economy scaling, freeze-resist scaling, and extracted utility modules.
+> Includes wave templates, swarm burst groups, per-tower targeting UI, executioner tower, tiered economy scaling, freeze-resist scaling, main-menu guide access, and a modifiers guide tab.
 
 ---
 
@@ -27,9 +27,9 @@ Primary game loop and orchestration live in `main.py`; gameplay helpers are spli
 1. `pygame.init()` and window creation.
 2. Constants and drawing/game systems imported.
 3. `create_maze()` builds the grid, spawn points, and goal.
-4. Initial state variables are initialized (money, lives, wave, etc.).
-5. `get_wave_selection()` captures target wave from user input popup.
-6. `next_wave()` starts wave 1.
+4. Initial state variables are initialized (money, lives, wave, app/menu state, etc.).
+5. App starts in `main_menu` state and waits for menu input.
+6. User enters wave selection, then modifier draft, then gameplay begins.
 
 ### Frame flow (`while run` in `main.py`)
 1. Read inputs/events.
@@ -55,20 +55,29 @@ Primary game loop and orchestration live in `main.py`; gameplay helpers are spli
 ## `main.py`
 
 ### Purpose
-Game entrypoint. Owns global game state, loop timing, input handling, spawn logic, and win/loss progression.
+Game entrypoint. Owns global game state, loop timing, app-state transitions (menu/settings/guide/gameplay), input handling, spawn logic, and win/loss progression.
+
+### App states (`app_state`)
+- `main_menu`: start/progression/settings/guide buttons.
+- `wave_select`: enter target wave.
+- `modifier_draft`: pick one of three modifier cards.
+- `progression`: persistent unlocks and modifier list.
+- `menu_settings`: pre-run settings panel.
+- `menu_guide`: full guide overlay accessible from main menu.
+- `gameplay`: active run (with pause, in-run guide, and in-run settings).
 
 ### Functions
 
-#### `get_wave_selection()`
+#### Wave selection flow
 **What it does**
-- Runs a temporary input loop before the game starts.
+- Uses the `wave_select` app state before gameplay starts.
 - Displays `draw_wave_selection_popup(...)` and accepts numeric keyboard input.
-- Returns a positive integer wave target once Enter is pressed.
+- Starts modifier draft after Enter with a valid positive target wave.
 
 **Details**
 - Backspace deletes digits.
 - Input capped to 3 digits.
-- If the window closes, game exits immediately.
+- Escape returns to main menu.
 
 #### Wave template integration
 **What it does**
@@ -271,6 +280,16 @@ All rendering utilities for map, HUD, overlays, guide, and upgrade panel.
 
 ### Functions
 
+#### `draw_main_menu(screen, font)`
+Renders the title screen and returns clickable button rects for:
+- `Start Game`
+- `Guide`
+- `Progression`
+- `Settings`
+
+**Returns**
+- `buttons` mapping for click routing in `main.py`.
+
 #### `draw_grid(screen, grid, goal_grid)`
 Draws each tile according to tile type:
 - wall (`1`) with side-specific wall sprites where possible
@@ -288,10 +307,10 @@ Draws bottom HUD panel:
 - selected tower targeting info when relevant
 
 #### `draw_game_over(screen, font)`
-Renders full-screen defeat state and two clickable text-button rects.
+Renders full-screen defeat state and three clickable text-button rects.
 
 **Returns**
-- `(play_again_rect, exit_rect)` for click handling in `main.py`.
+- `(play_again_rect, menu_rect, exit_rect)` for click handling in `main.py`.
 
 #### `draw_boss_spawn_popup(screen, font, boss_type)`
 Draws red center popup indicating boss spawn.
@@ -299,27 +318,36 @@ Draws red center popup indicating boss spawn.
 #### `draw_wave_selection_popup(screen, font, input_text)`
 Renders startup modal for target wave numeric input.
 
-#### `draw_pause(screen, font)`
+#### `draw_pause(screen, font, guide_key='H', settings_key='O')`
 Renders pause overlay, resume hint, and guide hint.
 
 #### `draw_victory(screen, font)`
-Renders full-screen victory state and two clickable text-button rects.
+Renders full-screen victory state and three clickable text-button rects.
 
 **Returns**
-- `(play_again_rect, exit_rect)` for click handling in `main.py`.
+- `(play_again_rect, menu_rect, exit_rect)` for click handling in `main.py`.
 
 #### `draw_guide(screen, font, page, scroll_offset=0)`
-Draws in-game documentation overlay:
+Draws documentation overlay (used both in paused gameplay and from main menu):
 - page menu and per-page content
 - custom tab strip
 - clipped scrollable content area
 - scrollbar with thumb
 - contextual nav footer hints
 
+**Guide pages**
+- `[1]` Towers
+- `[2]` Traps
+- `[3]` Enemies
+- `[4]` Mechanics
+- `[5]` Strategy
+- `[6]` Keybinds
+- `[7]` Modifiers
+
 **Returns**
 - `max_scroll` for caller-side clamping.
 
-#### `draw_upgrade_ui(screen, font, selected_structure, money)`
+#### `draw_upgrade_ui(screen, font, selected_structure, money, refund_rate=0.70)`
 Draws floating panel near selected tower/trap with:
 - path upgrades
 - per-tower targeting buttons (where supported)
@@ -356,7 +384,7 @@ Builds initial `grid`, `spawn_points`, and center `goal`.
 **Returns**
 - `(grid, spawn_points, goal)`.
 
-#### `expand_paths(grid, towers, goal, spawn_points)`
+#### `expand_paths(grid, towers, spawn_points)`
 Adds a new spawn lane by:
 - selecting a random interior-edge tile
 - finding nearest existing path tile (excluding spawn-adjacent tiles)
@@ -588,7 +616,7 @@ Path-lock validation (same rule as towers).
 
 #### `upgrade(self, path)`
 Applies upgrade effects:
-- fire: aura size, burn spread, explode on kill, revive flag
+- fire: aura size and burn spread (`Detonate` is currently a named tier without extra behavior logic)
 - spikes: bleed, impale, cluster, quake
 
 #### `_apply_damage(self, enemy, amount, dmg_type, source)`
@@ -602,15 +630,10 @@ Continuous fire aura logic by Chebyshev tile distance from trap:
 - surrounding rings lower multipliers
 - optional burn spread splash to nearby enemies.
 
-#### `_update_spikes_bleed(self, enemies, dt)`
-Maintains bleed DoT on tracked enemy IDs.
-Auto-cleans dead/missing targets.
-
 #### `_update_spikes_trigger(self, enemies, affected)`
 Triggered spike hit processing:
 - direct spike damage to enemies on tile
 - optional bleed/impale flags
-- optional explosion on kill (if enabled)
 - optional quake and cluster extra AoE effects
 
 #### `update(self, enemies)`
@@ -684,7 +707,8 @@ Draws beam line and endpoint glow marker.
 ## 5) Input, Economy, and Progression Reference
 
 ### Input map
-- `1..5`: choose build type
+- `1`: Archer tower, `2`: Magic tower, `3`: Ice tower
+- `4`: Fire trap, `5`: Spike trap, `6`: Executioner tower
 - mouse click: place/select
 - `Q`, `E`: apply path upgrades to selected structure
 - `C`: cycle game speed (`1x -> 2x -> 3x -> 1x`)
@@ -692,15 +716,32 @@ Draws beam line and endpoint glow marker.
 - tower menu click or `R`: sell selected structure
 - `ESC`: pause/resume
 - paused + `H`: open guide
+- while guide is open: `1..7` switch pages, `UP/DOWN` (or wheel) scroll, `BACKSPACE` back/close
 - paused + `O`: open settings
-- victory/game-over screen: click `Play Again` or `Exit`
+- victory/game-over screen: click `Play Again`, `Main Menu`, or `Exit`
+
+### Main menu navigation
+- `Start Game` -> wave selection -> modifier draft -> gameplay.
+- `Guide` -> opens `menu_guide` state with the same page system (`1..7`) and scrolling controls.
+- `Progression` -> shows level/XP and unlocked modifiers.
+- `Settings` -> resolution + keybind tabs.
+
+### Modifier system (run-affecting)
+- Each run offers 3 random modifiers from unlocked pool; pick exactly 1.
+- Chosen modifier persists for the full run and can alter economy/combat pacing.
+- Modifier definitions live in `modifiers.py`; active effect bundle is produced by `compile_run_effects(...)`.
+
+Current modifiers:
+- Tier 1: Sharpened Arrows, Efficient Wiring, Cold Front, Prepared Defenses, Reinforced Triggers, Hotter Flames, Long Sightlines, Rapid Deployment, Focused Targeting, Efficient Salvage.
+- Tier 2: Volatile Enemies, Glass Cannons, Greedy Markets.
+- Tier 3: Overclocked Grid.
 
 ### Economy
 - start money: `400`
 - start lives: `25`
 - kill reward: `int(enemy.reward * 1.5)`
-- wave completion interest: `5%` of current gold, capped at `200`
-- sell refund: `75%` of (build cost + spent upgrades)
+- wave completion interest: tiered (`5%` up to 500, `3%` up to 1200, then `2%`), capped at `150`
+- sell refund: default `70%` of (build cost + spent upgrades), adjustable by run modifiers
 
 ### Progression
 - wave enemy count follows phased curve (early/mid/late)

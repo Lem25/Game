@@ -17,8 +17,6 @@ class Trap:
         self.path1_level = 0
         self.path2_level = 0
         self.aura_radius = 2
-        self.revive_available = False
-        self.has_revived = False
         self.burn_spread = False
         self.explode_on_kill = False
         self.bleed_enabled = False
@@ -68,8 +66,6 @@ class Trap:
                 if self.path1_level == 1:
                     self.aura_radius = 3
                     self.dps = 45
-                elif self.path1_level == 2:
-                    self.revive_available = True
             elif self.trap_type == 'spikes':
                 if self.path1_level == 1:
                     self.bleed_enabled = True

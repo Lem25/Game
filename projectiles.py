@@ -43,6 +43,9 @@ class Projectile:
                 self.sprite = get_asset('missile_proj', size=12)
 
     def _apply_direct_damage(self, enemy, damage_value):
+        if self.tower and getattr(self.tower, 'targeting_mode', None) == 'strongest':
+            bonus = float(getattr(self.tower, 'focused_targeting_bonus', 1.0))
+            damage_value *= max(0.0, bonus)
         if self.tower and hasattr(self.tower, 'armor_pierce') and self.tower.armor_pierce > 0:
             original_resist = enemy.resist_phys if self.dmg_type == 'physical' else enemy.resist_magic
             effective_resist = max(0, original_resist - self.tower.armor_pierce)

@@ -8,9 +8,13 @@ from colors import DARK_GRAY
 from constants import FPS, GRID_H, GRID_W, HEIGHT, TILE, TOWER_COSTS, TRAP_COSTS, WIDTH
 from drawing import (
     draw_boss_spawn_popup,
+    draw_end_progress_bar,
     draw_game_over,
     draw_grid,
+    draw_main_menu,
+    draw_modifier_draft,
     draw_pause,
+    draw_progression_screen,
     draw_settings_popup,
     draw_ui,
     draw_victory,
@@ -28,6 +32,8 @@ from wave_templates import choose_enemy_type, get_spawn_interval
 from game_settings import RESOLUTION_OPTIONS, load_settings, save_settings
 from keybind_utils import load_keybind_maps, pretty_key_name
 from economy import calculate_interest, get_structure_sell_value
+from modifiers import MODIFIERS, compile_run_effects, get_modifier
+from progression import add_xp, load_progression, save_progression, sync_unlocks, xp_to_next
 from spawn_scaling import apply_spawn_scaling
 from viewport_utils import get_viewport_rect, present_frame, window_to_game_pos
 from placement_rules import can_place_tower, can_place_trap
@@ -73,29 +79,6 @@ def bind_action(action, key_code):
     game_settings['keybinds'] = dict(keybind_names)
     save_settings(game_settings)
 
-def get_wave_selection():
-    input_text = ""
-    selecting = True
-    while selecting:
-        clock.tick(FPS)
-        screen.fill(DARK_GRAY)
-        draw_wave_selection_popup(screen, font, input_text)
-        present_frame(window, screen, WIDTH, HEIGHT)
-        
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    if input_text and input_text.isdigit() and int(input_text) > 0:
-                        return int(input_text)
-                elif event.key == pygame.K_BACKSPACE:
-                    input_text = input_text[:-1]
-                elif event.unicode.isdigit() and len(input_text) < 3:
-                    input_text += event.unicode
-    return 50
-
 grid, spawn_points, GOAL_GRID = create_maze()
 towers = []
 enemies = []
@@ -110,7 +93,7 @@ placing_tower_type = 'physical'
 selected_tower = None
 boss_spawn_lane = None
 enemy_scale = 1.0
-target_wave = get_wave_selection()
+target_wave = 50
 boss_popup_counter = 0
 paused = False
 show_guide = False
@@ -119,13 +102,16 @@ guide_scroll = 0
 game_won = False
 game_over = False
 victory_play_again_rect = None
+victory_menu_rect = None
 victory_exit_rect = None
 game_over_play_again_rect = None
+game_over_menu_rect = None
 game_over_exit_rect = None
 game_speed = 1
 projectile_pool = ProjectilePool()
 spatial_index = SpatialHash()
 last_interest_wave = 0
+last_wave_xp_awarded = 0
 targeting_mode_rects = {}
 sell_button_rect = None
 pending_spawns = []
@@ -142,16 +128,36 @@ settings_max_scroll = 0
 viewport_rect = get_viewport_rect(window, WIDTH, HEIGHT)
 keybind_names, keybind_codes = load_keybind_maps(game_settings)
 
+progression = load_progression()
+sync_unlocks(progression)
+save_progression(progression)
+
+app_state = 'main_menu'
+menu_button_rects = {}
+wave_select_input = ''
+progression_scroll = 0
+progression_back_rect = None
+draft_choices = []
+draft_button_rects = {}
+active_modifier_id = None
+run_effects = compile_run_effects(None)
+rapid_deployment_wave_used = -1
+run_start_level = int(progression.get('level', 1))
+run_start_xp = int(progression.get('xp', 0))
+run_xp_gained = 0
+end_progress_shown_gain = 0
+
 def next_wave():
     global wave, wave_enemies_left, boss_spawn_lane, spawn_points
     global enemy_scale, boss_popup_counter, target_wave
-    global pending_spawns, wave_swarm_spawn_count
+    global pending_spawns, wave_swarm_spawn_count, rapid_deployment_wave_used
     wave += 1
+    rapid_deployment_wave_used = -1
 
     wave_enemies_left = max(2, get_wave_enemy_count(wave, target_wave))
     
     if wave % 5 == 0:
-        new_path_tiles, towers_to_remove, spawn_point = expand_paths(grid, towers, GOAL_GRID, spawn_points)
+        _, towers_to_remove, spawn_point = expand_paths(grid, towers, spawn_points)
         invalidate_path_cache()
         for tower in towers_to_remove:
             if tower in towers:
@@ -181,21 +187,23 @@ def next_wave():
         pass
 
 
-def reset_match_state(selected_target_wave=None):
+def reset_match_state(selected_target_wave=None, auto_start_wave=True):
     global grid, spawn_points, GOAL_GRID
     global towers, enemies, traps, projectiles
     global money, lives, wave, wave_enemies_left, wave_timer
     global placing_tower_type, selected_tower, boss_spawn_lane
     global enemy_scale, target_wave, boss_popup_counter
     global paused, show_guide, guide_page, guide_scroll
-    global game_won, game_over, victory_play_again_rect, victory_exit_rect
-    global game_over_play_again_rect, game_over_exit_rect
+    global game_won, game_over, victory_play_again_rect, victory_menu_rect, victory_exit_rect
+    global game_over_play_again_rect, game_over_menu_rect, game_over_exit_rect
     global game_speed, projectile_pool, spatial_index, last_interest_wave
+    global last_wave_xp_awarded
     global targeting_mode_rects, sell_button_rect
     global pending_spawns, spawn_clock
-    global wave_swarm_spawn_count
+    global wave_swarm_spawn_count, rapid_deployment_wave_used
     global show_settings, settings_option_rects, settings_tab_rects, settings_tab
     global settings_action_rects, awaiting_keybind_action, settings_scroll, settings_max_scroll
+    global run_start_level, run_start_xp, run_xp_gained, end_progress_shown_gain
 
     grid, spawn_points, GOAL_GRID = create_maze()
     invalidate_path_cache()
@@ -213,7 +221,7 @@ def reset_match_state(selected_target_wave=None):
     selected_tower = None
     boss_spawn_lane = None
     enemy_scale = 1.0
-    target_wave = selected_target_wave if selected_target_wave is not None else get_wave_selection()
+    target_wave = selected_target_wave if selected_target_wave is not None else target_wave
     boss_popup_counter = 0
     paused = False
     show_guide = False
@@ -222,8 +230,10 @@ def reset_match_state(selected_target_wave=None):
     game_won = False
     game_over = False
     victory_play_again_rect = None
+    victory_menu_rect = None
     victory_exit_rect = None
     game_over_play_again_rect = None
+    game_over_menu_rect = None
     game_over_exit_rect = None
     game_speed = 1
     projectile_pool = ProjectilePool()
@@ -234,6 +244,7 @@ def reset_match_state(selected_target_wave=None):
     pending_spawns = []
     spawn_clock = 0.0
     wave_swarm_spawn_count = 0
+    rapid_deployment_wave_used = -1
     show_settings = False
     settings_option_rects = []
     settings_tab_rects = []
@@ -242,15 +253,218 @@ def reset_match_state(selected_target_wave=None):
     awaiting_keybind_action = None
     settings_scroll = 0
     settings_max_scroll = 0
+    last_wave_xp_awarded = 0
+    run_start_level = int(progression.get('level', 1))
+    run_start_xp = int(progression.get('xp', 0))
+    run_xp_gained = 0
+    end_progress_shown_gain = 0
 
-    next_wave()
+    if auto_start_wave:
+        next_wave()
 
 
-next_wave()
+def award_xp(amount):
+    global run_xp_gained
+    if amount <= 0:
+        return
+    run_xp_gained += int(amount)
+    add_xp(progression, int(amount))
+    save_progression(progression)
+
+
+def project_progress(level, xp, gained_xp):
+    lvl = max(1, int(level))
+    current_xp = max(0, int(xp)) + max(0, int(gained_xp))
+    while current_xp >= xp_to_next(lvl):
+        current_xp -= xp_to_next(lvl)
+        lvl += 1
+    return lvl, current_xp, xp_to_next(lvl)
+
+
+def apply_tower_modifier_effects(tower):
+    tower.dmg *= run_effects['tower_damage_mult']
+    if tower.type == 'physical':
+        tower.dmg *= run_effects['archer_damage_mult']
+    if tower.type == 'magic':
+        tower.attack_interval *= run_effects['magic_interval_mult']
+    tower.attack_interval *= run_effects['tower_attack_interval_mult']
+    tower.range *= run_effects['tower_range_mult']
+    tower.focused_targeting_bonus = run_effects['focused_targeting_bonus']
+
+
+def apply_trap_modifier_effects(trap):
+    if trap.trap_type == 'spikes':
+        trap.damage *= run_effects['spike_damage_mult']
+
+
+def apply_enemy_modifier_effects(enemy):
+    enemy.speed *= run_effects['enemy_speed_mult']
+    enemy.base_speed *= run_effects['enemy_speed_mult']
+    enemy.reward = int(enemy.reward * run_effects['enemy_reward_mult'])
+    enemy.slow_decay_rate *= run_effects['slow_decay_mult']
+    enemy.burn_dot_multiplier = run_effects['burn_dot_mult']
+
+
+def build_modifier_draft():
+    unlocked = [mid for mid in progression.get('unlocked_modifiers', []) if get_modifier(mid)]
+    if not unlocked:
+        unlocked = [1, 2, 3]
+    choice_ids = random.sample(unlocked, min(3, len(unlocked)))
+    return [MODIFIERS[mid] for mid in choice_ids]
+
+
 run = True
 while run:
     raw_dt = clock.tick(FPS) / 1000.0
     dt = raw_dt * game_speed
+
+    if app_state != 'gameplay':
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                run = False
+            elif event.type == pygame.VIDEORESIZE:
+                window = pygame.display.set_mode((max(640, event.w), max(480, event.h)), pygame.RESIZABLE)
+                current_resolution = window.get_size()
+                game_settings['resolution'] = [current_resolution[0], current_resolution[1]]
+                save_settings(game_settings)
+                viewport_rect = get_viewport_rect(window, WIDTH, HEIGHT)
+            elif event.type == pygame.KEYDOWN:
+                if app_state == 'wave_select':
+                    if event.key == pygame.K_RETURN:
+                        if wave_select_input and wave_select_input.isdigit() and int(wave_select_input) > 0:
+                            reset_match_state(selected_target_wave=int(wave_select_input), auto_start_wave=False)
+                            draft_choices = build_modifier_draft()
+                            draft_button_rects = {}
+                            app_state = 'modifier_draft'
+                    elif event.key == pygame.K_BACKSPACE:
+                        wave_select_input = wave_select_input[:-1]
+                    elif event.unicode.isdigit() and len(wave_select_input) < 3:
+                        wave_select_input += event.unicode
+                    elif event.key == pygame.K_ESCAPE:
+                        app_state = 'main_menu'
+                elif app_state == 'progression' and event.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
+                    app_state = 'main_menu'
+                elif app_state == 'menu_settings':
+                    if awaiting_keybind_action:
+                        if event.key == pygame.K_ESCAPE:
+                            awaiting_keybind_action = None
+                        else:
+                            bind_action(awaiting_keybind_action, event.key)
+                            awaiting_keybind_action = None
+                    elif event.key == pygame.K_ESCAPE:
+                        app_state = 'main_menu'
+                        settings_scroll = 0
+                        settings_max_scroll = 0
+                    elif event.key == pygame.K_1:
+                        settings_tab = 'resolution'
+                        settings_scroll = 0
+                    elif event.key == pygame.K_2:
+                        settings_tab = 'keybinds'
+                        settings_scroll = 0
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        settings_scroll = max(0, settings_scroll - 30)
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        settings_scroll = min(settings_max_scroll, settings_scroll + 30)
+                    elif settings_tab == 'resolution':
+                        for idx, res in enumerate(RESOLUTION_OPTIONS):
+                            if event.key == pygame.K_1 + idx:
+                                apply_resolution(res)
+                                viewport_rect = get_viewport_rect(window, WIDTH, HEIGHT)
+                                break
+            elif event.type == pygame.MOUSEWHEEL:
+                if app_state == 'progression':
+                    progression_scroll = max(0, progression_scroll - event.y * 30)
+                elif app_state == 'menu_settings':
+                    settings_scroll = max(0, min(settings_max_scroll, settings_scroll - event.y * 30))
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if getattr(event, 'button', 1) != 1:
+                    continue
+                logical_pos = window_to_game_pos(event.pos, viewport_rect, WIDTH, HEIGHT)
+                if logical_pos is None:
+                    continue
+                mx, my = logical_pos
+                if app_state == 'main_menu':
+                    if menu_button_rects.get('start') and menu_button_rects['start'].collidepoint(mx, my):
+                        wave_select_input = ''
+                        app_state = 'wave_select'
+                    elif menu_button_rects.get('progression') and menu_button_rects['progression'].collidepoint(mx, my):
+                        app_state = 'progression'
+                    elif menu_button_rects.get('settings') and menu_button_rects['settings'].collidepoint(mx, my):
+                        app_state = 'menu_settings'
+                        settings_tab = 'resolution'
+                        settings_scroll = 0
+                        awaiting_keybind_action = None
+                elif app_state == 'progression':
+                    if progression_back_rect and progression_back_rect.collidepoint(mx, my):
+                        app_state = 'main_menu'
+                elif app_state == 'modifier_draft':
+                    picked = None
+                    for modifier_id, rect in draft_button_rects.items():
+                        if rect.collidepoint(mx, my):
+                            picked = modifier_id
+                            break
+                    if picked is not None:
+                        run_start_level = int(progression.get('level', 1))
+                        run_start_xp = int(progression.get('xp', 0))
+                        run_xp_gained = 0
+                        end_progress_shown_gain = 0
+                        active_modifier_id = picked
+                        run_effects = compile_run_effects(active_modifier_id)
+                        money += int(run_effects.get('start_gold_bonus', 0))
+                        next_wave()
+                        app_state = 'gameplay'
+                elif app_state == 'menu_settings':
+                    for tab_rect, tab_key in settings_tab_rects:
+                        if tab_rect.collidepoint(mx, my):
+                            settings_tab = tab_key
+                            awaiting_keybind_action = None
+                            settings_scroll = 0
+                            break
+                    for option_rect, option_resolution in settings_option_rects:
+                        if settings_tab == 'resolution' and option_rect.collidepoint(mx, my):
+                            apply_resolution(option_resolution)
+                            viewport_rect = get_viewport_rect(window, WIDTH, HEIGHT)
+                            awaiting_keybind_action = None
+                            break
+                    for action_rect, action_name in settings_action_rects:
+                        if settings_tab == 'keybinds' and action_rect.collidepoint(mx, my):
+                            awaiting_keybind_action = action_name
+                            break
+
+        if app_state == 'main_menu':
+            menu_button_rects = draw_main_menu(screen, font)
+        elif app_state == 'wave_select':
+            screen.fill(DARK_GRAY)
+            draw_wave_selection_popup(screen, font, wave_select_input)
+        elif app_state == 'modifier_draft':
+            draft_button_rects = draw_modifier_draft(screen, font, draft_choices)
+        elif app_state == 'progression':
+            ordered_modifiers = [MODIFIERS[mid] for mid in sorted(MODIFIERS.keys())]
+            panel = draw_progression_screen(screen, font, progression, ordered_modifiers, progression_scroll)
+            progression_back_rect = panel.get('back_rect')
+            progression_scroll = min(progression_scroll, panel.get('max_scroll', 0))
+        elif app_state == 'menu_settings':
+            screen.fill(DARK_GRAY)
+            keybind_display = {action: pretty_key_name(code) for action, code in keybind_codes.items()}
+            settings_panel = draw_settings_popup(
+                screen,
+                font,
+                current_resolution,
+                RESOLUTION_OPTIONS,
+                settings_tab=settings_tab,
+                keybind_display=keybind_display,
+                waiting_action=awaiting_keybind_action,
+                scroll_offset=settings_scroll,
+            )
+            settings_tab_rects = settings_panel.get('tabs', [])
+            settings_option_rects = settings_panel.get('options', [])
+            settings_action_rects = settings_panel.get('actions', [])
+            settings_max_scroll = settings_panel.get('max_scroll', 0)
+            settings_scroll = min(settings_scroll, settings_max_scroll)
+
+        viewport_rect = present_frame(window, screen, WIDTH, HEIGHT)
+        continue
+
     screen.fill(DARK_GRAY)
     draw_grid(screen, grid, GOAL_GRID)
 
@@ -385,7 +599,7 @@ while run:
                                 selected_tower.upgrade_spent = getattr(selected_tower, 'upgrade_spent', 0) + upgrade_cost
                 elif event.key == keybind_codes.get('sell_structure', pygame.K_r):
                     if selected_tower:
-                        money += get_structure_sell_value(selected_tower)
+                        money += get_structure_sell_value(selected_tower, refund_rate=run_effects['sell_refund_rate'])
                         if selected_tower in towers:
                             towers.remove(selected_tower)
                         elif selected_tower in traps:
@@ -394,6 +608,8 @@ while run:
                         targeting_mode_rects = {}
                         sell_button_rect = None
         elif event.type == pygame.MOUSEBUTTONDOWN:
+            if getattr(event, 'button', 1) != 1:
+                continue
             logical_pos = window_to_game_pos(event.pos, viewport_rect, WIDTH, HEIGHT)
             if logical_pos is None:
                 continue
@@ -401,14 +617,20 @@ while run:
             gx, gy = mx // TILE, my // TILE
             if game_over:
                 if game_over_play_again_rect and game_over_play_again_rect.collidepoint(mx, my):
-                    reset_match_state()
+                    wave_select_input = ''
+                    app_state = 'wave_select'
+                elif game_over_menu_rect and game_over_menu_rect.collidepoint(mx, my):
+                    app_state = 'main_menu'
                 elif game_over_exit_rect and game_over_exit_rect.collidepoint(mx, my):
                     pygame.quit()
                     sys.exit()
                 continue
             if game_won:
                 if victory_play_again_rect and victory_play_again_rect.collidepoint(mx, my):
-                    reset_match_state()
+                    wave_select_input = ''
+                    app_state = 'wave_select'
+                elif victory_menu_rect and victory_menu_rect.collidepoint(mx, my):
+                    app_state = 'main_menu'
                 elif victory_exit_rect and victory_exit_rect.collidepoint(mx, my):
                     pygame.quit()
                     sys.exit()
@@ -423,7 +645,7 @@ while run:
                     continue
 
             if selected_tower and sell_button_rect and sell_button_rect.collidepoint(mx, my):
-                money += get_structure_sell_value(selected_tower)
+                money += get_structure_sell_value(selected_tower, refund_rate=run_effects['sell_refund_rate'])
                 if selected_tower in towers:
                     towers.remove(selected_tower)
                 elif selected_tower in traps:
@@ -457,19 +679,25 @@ while run:
 
             if not game_won and placing_tower_type in ['physical', 'magic', 'ice', 'executioner'] and can_place_tower(grid, gx, gy, towers, TILE, GRID_W, GRID_H):
                 cost = TOWER_COSTS[placing_tower_type]
+                if run_effects['rapid_deployment'] and rapid_deployment_wave_used != wave:
+                    cost = int(cost * 0.85)
                 if money >= cost:
                     tower_pos = pygame.Vector2(gx * TILE + TILE // 2, gy * TILE + TILE // 2)
                     tower = Tower(tower_pos, placing_tower_type)
+                    apply_tower_modifier_effects(tower)
                     tower.upgrade_spent = 0
                     tower.build_cost = cost
                     towers.append(tower)
                     money -= cost
+                    if run_effects['rapid_deployment'] and rapid_deployment_wave_used != wave:
+                        rapid_deployment_wave_used = wave
                     structure_placed = True
             elif not game_won and placing_tower_type in ['fire', 'spikes']:
                 if can_place_trap(grid, gx, gy, towers, traps, GRID_W, GRID_H, TILE):
                     cost = TRAP_COSTS.get(placing_tower_type, 0)
                     if money >= cost:
                         trap = Trap((gx, gy), placing_tower_type)
+                        apply_trap_modifier_effects(trap)
                         trap.upgrade_spent = 0
                         trap.build_cost = cost
                         traps.append(trap)
@@ -556,7 +784,7 @@ while run:
             settings_max_scroll = 0
         
         if selected_tower and not show_guide and not show_settings:
-            panel_info = draw_upgrade_ui(screen, font, selected_tower, money)
+            panel_info = draw_upgrade_ui(screen, font, selected_tower, money, refund_rate=run_effects['sell_refund_rate'])
             targeting_mode_rects = panel_info.get('targeting_modes', {})
             sell_button_rect = panel_info.get('sell_rect')
         else:
@@ -566,9 +794,14 @@ while run:
         continue
 
     if wave_enemies_left == 0 and len(enemies) == 0 and not game_won and not pending_spawns:
+        if wave > 0 and last_wave_xp_awarded != wave:
+            award_xp(8 + wave * 2)
+            last_wave_xp_awarded = wave
         if wave > 0 and last_interest_wave != wave:
-            interest = calculate_interest(money)
-            money += interest
+            interest_cap = 150 + int(run_effects.get('interest_cap_bonus', 0))
+            interest = calculate_interest(money, cap=interest_cap)
+            interest = int(interest * run_effects.get('interest_mult', 1.0))
+            money += max(0, interest)
             last_interest_wave = wave
 
         if wave < target_wave:
@@ -589,7 +822,11 @@ while run:
         for e in enemies:
             e.draw(screen)
 
-        game_over_play_again_rect, game_over_exit_rect = draw_game_over(screen, font)
+        if end_progress_shown_gain < run_xp_gained:
+            end_progress_shown_gain = min(run_xp_gained, end_progress_shown_gain + max(1, int(240 * raw_dt)))
+        shown_level, shown_xp, shown_xp_next = project_progress(run_start_level, run_start_xp, end_progress_shown_gain)
+        game_over_play_again_rect, game_over_menu_rect, game_over_exit_rect = draw_game_over(screen, font)
+        draw_end_progress_bar(screen, font, shown_level, shown_xp, shown_xp_next, end_progress_shown_gain, run_xp_gained)
         viewport_rect = present_frame(window, screen, WIDTH, HEIGHT)
         continue
 
@@ -606,7 +843,11 @@ while run:
         for e in enemies:
             e.draw(screen)
         
-        victory_play_again_rect, victory_exit_rect = draw_victory(screen, font)
+        if end_progress_shown_gain < run_xp_gained:
+            end_progress_shown_gain = min(run_xp_gained, end_progress_shown_gain + max(1, int(240 * raw_dt)))
+        shown_level, shown_xp, shown_xp_next = project_progress(run_start_level, run_start_xp, end_progress_shown_gain)
+        victory_play_again_rect, victory_menu_rect, victory_exit_rect = draw_victory(screen, font)
+        draw_end_progress_bar(screen, font, shown_level, shown_xp, shown_xp_next, end_progress_shown_gain, run_xp_gained)
         viewport_rect = present_frame(window, screen, WIDTH, HEIGHT)
         continue
 
@@ -620,6 +861,7 @@ while run:
                 for entry in ready_spawns:
                     spawn_tile = entry['spawn_point'] if entry['spawn_point'] in spawn_points else random.choice(spawn_points)
                     enemy = Enemy(grid, spawn_tile, GOAL_GRID, entry['enemy_type'], scale=enemy_scale)
+                    apply_enemy_modifier_effects(enemy)
                     if entry['enemy_type'] == 'swarm':
                         offset_x = random.uniform(-4.0, 4.0)
                         offset_y = random.uniform(-4.0, 4.0)
@@ -656,6 +898,7 @@ while run:
                     wave_enemies_left -= burst_count
             else:
                 enemy = Enemy(grid, spawn, GOAL_GRID, etype, scale=enemy_scale)
+                apply_enemy_modifier_effects(enemy)
                 apply_spawn_scaling(enemy, wave)
                 enemies.append(enemy)
                 wave_enemies_left -= 1
@@ -696,7 +939,11 @@ while run:
                 e.hp = 0
                 to_remove.append(e)
             elif e.hp <= 0:
-                money += int(e.reward * 1.5)
+                money += int(e.reward * 1.5 * run_effects.get('kill_reward_mult', 1.0))
+                kill_xp = int(e.reward * 0.6)
+                if getattr(e, 'is_boss', False):
+                    kill_xp += 40
+                award_xp(kill_xp)
                 to_remove.append(e)
         for e in to_remove:
             if e in enemies:
@@ -739,7 +986,7 @@ while run:
     draw_ui(screen, font, money, lives, wave, wave_enemies_left, placing_tower_type, tower_costs=combined_costs, game_speed=game_speed, selected_structure=selected_tower)
     
     if selected_tower:
-        panel_info = draw_upgrade_ui(screen, font, selected_tower, money)
+        panel_info = draw_upgrade_ui(screen, font, selected_tower, money, refund_rate=run_effects['sell_refund_rate'])
         targeting_mode_rects = panel_info.get('targeting_modes', {})
         sell_button_rect = panel_info.get('sell_rect')
     else:

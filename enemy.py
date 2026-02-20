@@ -23,6 +23,13 @@ ENEMY_SIZE_SCALE = {
 
 _PATH_CACHE = {}
 _PATH_CACHE_VERSION = 0
+NON_BOSS_SIZE_MULTIPLIER = 1.25
+ENEMY_TYPE_SIZE_MULTIPLIER = {
+    'swarm': 1.8,
+    'assassin': 1.2,
+    'healer': 0.9,
+    'tank': 0.85,
+}
 
 
 def invalidate_path_cache():
@@ -44,7 +51,10 @@ class Enemy:
         self.resist_phys = self.base_resist_phys
         self.resist_magic = self.base_resist_magic
         base_size = stats.get('size', ENEMY_SIZE_SCALE.get(enemy_type, 6))
-        self.size = base_size * 0.9 * (1.0 if scale <= 1.0 else (1.0 + (scale - 1.0) * 0.5))
+        scale_factor = 1.0 if scale <= 1.0 else (1.0 + (scale - 1.0) * 0.5)
+        size_multiplier = 1.0 if enemy_type in ('minotaur_boss', 'demon_boss') else NON_BOSS_SIZE_MULTIPLIER
+        type_size_multiplier = ENEMY_TYPE_SIZE_MULTIPLIER.get(enemy_type, 1.0)
+        self.size = base_size * 0.9 * scale_factor * size_multiplier * type_size_multiplier
         self.color = ENEMY_COLORS[enemy_type]
         self.reward = stats['reward']
         self.reward = int(self.reward * scale)
@@ -78,6 +88,7 @@ class Enemy:
         self.impaled_time = 0.0
         self.is_boss = enemy_type in ('minotaur_boss', 'demon_boss')
         self.freeze_resist = 0.0
+        self.burn_dot_multiplier = 1.0
         
         self.repath()
 
@@ -125,7 +136,8 @@ class Enemy:
         bleeding = bool(bleed and bleed.active)
 
         if self.burning:
-            self.take_damage(3.5 * dt, 'magic', source='trap')
+            burn_mult = max(0.0, float(getattr(self, 'burn_dot_multiplier', 1.0)))
+            self.take_damage(3.5 * burn_mult * dt, 'magic', source='trap')
 
         if bleeding:
             bleed_dps = 5.0 + (bleed.strength * 0.5)

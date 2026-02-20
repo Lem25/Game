@@ -120,16 +120,52 @@ def draw_game_over(screen, font):
     screen.blit(game_over_text, game_over_rect)
 
     play_again_text = font.render("Play Again", True, WHITE)
-    play_again_rect = play_again_text.get_rect(center=(WIDTH // 2 - 100, HEIGHT // 2 + 50))
+    play_again_rect = play_again_text.get_rect(center=(WIDTH // 2 - 180, HEIGHT // 2 + 50))
     pygame.draw.rect(screen, (180, 80, 80), play_again_rect.inflate(20, 10), 2)
     screen.blit(play_again_text, play_again_rect)
 
+    menu_text = font.render("Main Menu", True, WHITE)
+    menu_rect = menu_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
+    pygame.draw.rect(screen, (120, 120, 160), menu_rect.inflate(20, 10), 2)
+    screen.blit(menu_text, menu_rect)
+
     exit_text = font.render("Exit", True, WHITE)
-    exit_rect = exit_text.get_rect(center=(WIDTH // 2 + 100, HEIGHT // 2 + 50))
+    exit_rect = exit_text.get_rect(center=(WIDTH // 2 + 180, HEIGHT // 2 + 50))
     pygame.draw.rect(screen, (150, 0, 0), exit_rect.inflate(20, 10), 2)
     screen.blit(exit_text, exit_rect)
 
-    return play_again_rect, exit_rect
+    return play_again_rect, menu_rect, exit_rect
+
+
+def draw_end_progress_bar(screen, font, level, xp, xp_next, shown_gain, total_gain):
+    panel_w = 520
+    panel_h = 78
+    panel_x = (WIDTH - panel_w) // 2
+    panel_y = HEIGHT // 2 + 110
+
+    panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    pygame.draw.rect(panel, (10, 16, 28, 210), (0, 0, panel_w, panel_h), border_radius=8)
+    pygame.draw.rect(panel, (120, 170, 240, 220), (0, 0, panel_w, panel_h), 2, border_radius=8)
+
+    title = font.render(f"Progression  •  Level {level}", True, (235, 242, 255))
+    xp_text = font.render(f"XP {xp}/{xp_next}", True, (210, 228, 250))
+    gain_text = font.render(f"Run XP +{shown_gain}/{total_gain}", True, (130, 220, 160))
+    panel.blit(title, (14, 10))
+    panel.blit(xp_text, (panel_w - xp_text.get_width() - 14, 10))
+    panel.blit(gain_text, (14, 52))
+
+    bar_x = 14
+    bar_y = 33
+    bar_w = panel_w - 28
+    bar_h = 14
+    pygame.draw.rect(panel, (35, 45, 64), (bar_x, bar_y, bar_w, bar_h), border_radius=6)
+
+    fill_ratio = 0.0 if xp_next <= 0 else max(0.0, min(1.0, xp / xp_next))
+    fill_w = int(bar_w * fill_ratio)
+    if fill_w > 0:
+        pygame.draw.rect(panel, (120, 215, 145), (bar_x, bar_y, fill_w, bar_h), border_radius=6)
+
+    screen.blit(panel, (panel_x, panel_y))
 
 def draw_boss_spawn_popup(screen, font, boss_type):
     popup_width = 300
@@ -170,6 +206,143 @@ def draw_wave_selection_popup(screen, font, input_text):
     popup_surface.blit(input_display, input_rect)
     
     screen.blit(popup_surface, (popup_x, popup_y))
+
+
+def draw_main_menu(screen, font):
+    button_width = 260
+    button_height = 54
+    button_gap = 18
+    labels = [('start', 'Start Game'), ('guide', 'Guide'), ('progression', 'Progression'), ('settings', 'Settings')]
+    total_buttons = len(labels)
+    start_y = HEIGHT // 2 - (button_height * total_buttons + button_gap * (total_buttons - 1)) // 2 + 30
+
+    screen.fill((20, 24, 36))
+    title = pygame.font.SysFont("arial", 34).render("Maze Treasure Defense", True, (240, 245, 255))
+    screen.blit(title, title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 150)))
+
+    buttons = {}
+    for idx, (key, label) in enumerate(labels):
+        rect = pygame.Rect((WIDTH - button_width) // 2, start_y + idx * (button_height + button_gap), button_width, button_height)
+        pygame.draw.rect(screen, (35, 48, 72), rect, border_radius=8)
+        pygame.draw.rect(screen, (120, 170, 240), rect, 2, border_radius=8)
+        text = font.render(label, True, (235, 242, 255))
+        screen.blit(text, text.get_rect(center=rect.center))
+        buttons[key] = rect
+    return buttons
+
+
+def draw_modifier_draft(screen, font, modifier_cards):
+    tier_colors = {1: (95, 205, 110), 2: (230, 210, 90), 3: (230, 95, 95)}
+    panel = pygame.Rect(70, 110, WIDTH - 140, HEIGHT - 220)
+    screen.fill((18, 20, 32))
+    pygame.draw.rect(screen, (28, 34, 54), panel, border_radius=10)
+    pygame.draw.rect(screen, (120, 170, 240), panel, 2, border_radius=10)
+
+    title = pygame.font.SysFont("arial", 26).render("Choose One Modifier", True, (245, 245, 255))
+    subtitle = font.render("Pick exactly one. Effect lasts for this run.", True, (185, 205, 235))
+    screen.blit(title, (panel.x + 20, panel.y + 18))
+    screen.blit(subtitle, (panel.x + 22, panel.y + 56))
+
+    card_width = (panel.width - 60) // 3
+    card_height = panel.height - 130
+    select_buttons = {}
+
+    for idx, modifier in enumerate(modifier_cards):
+        card_rect = pygame.Rect(panel.x + 15 + idx * (card_width + 15), panel.y + 90, card_width, card_height)
+        tier_color = tier_colors.get(modifier.get('tier', 1), (180, 180, 180))
+        pygame.draw.rect(screen, (36, 44, 70), card_rect, border_radius=8)
+        pygame.draw.rect(screen, tier_color, card_rect, 2, border_radius=8)
+
+        name = font.render(modifier.get('name', 'Modifier'), True, (255, 255, 255))
+        screen.blit(name, (card_rect.x + 12, card_rect.y + 14))
+
+        desc_font = pygame.font.SysFont("arial", 14)
+        description = modifier.get('description', '')
+        wrapped = []
+        words = description.split()
+        line = ""
+        for word in words:
+            probe = (line + " " + word).strip()
+            if desc_font.size(probe)[0] > card_width - 24:
+                wrapped.append(line)
+                line = word
+            else:
+                line = probe
+        if line:
+            wrapped.append(line)
+        y = card_rect.y + 52
+        for item in wrapped:
+            surf = desc_font.render(item, True, (215, 225, 240))
+            screen.blit(surf, (card_rect.x + 12, y))
+            y += 20
+
+        select_rect = pygame.Rect(card_rect.x + 12, card_rect.bottom - 44, card_width - 24, 30)
+        pygame.draw.rect(screen, (70, 125, 92), select_rect, border_radius=6)
+        pygame.draw.rect(screen, (130, 205, 155), select_rect, 1, border_radius=6)
+        select_text = font.render("Select", True, (255, 255, 255))
+        screen.blit(select_text, select_text.get_rect(center=select_rect.center))
+        select_buttons[modifier.get('id')] = select_rect
+
+    return select_buttons
+
+
+def draw_progression_screen(screen, font, progression_data, modifiers, scroll_offset=0):
+    tier_colors = {1: (95, 205, 110), 2: (230, 210, 90), 3: (230, 95, 95)}
+    unlocked = set(progression_data.get('unlocked_modifiers', []))
+    screen.fill((18, 20, 32))
+
+    panel = pygame.Rect(40, 40, WIDTH - 80, HEIGHT - 80)
+    pygame.draw.rect(screen, (28, 34, 54), panel, border_radius=10)
+    pygame.draw.rect(screen, (120, 170, 240), panel, 2, border_radius=10)
+
+    level = int(progression_data.get('level', 1))
+    xp = int(progression_data.get('xp', 0))
+    xp_next = max(1, int(100 * (level ** 1.35)))
+    header = font.render(f"Progression  |  Level {level}  |  XP {xp}/{xp_next}", True, (245, 245, 255))
+    screen.blit(header, (panel.x + 18, panel.y + 16))
+
+    back_rect = pygame.Rect(panel.right - 140, panel.y + 10, 120, 30)
+    pygame.draw.rect(screen, (50, 68, 104), back_rect, border_radius=6)
+    pygame.draw.rect(screen, (130, 180, 245), back_rect, 1, border_radius=6)
+    back_text = font.render("Back", True, (255, 255, 255))
+    screen.blit(back_text, back_text.get_rect(center=back_rect.center))
+
+    content_area = pygame.Rect(panel.x + 15, panel.y + 58, panel.width - 30, panel.height - 72)
+    pygame.draw.rect(screen, (22, 26, 40), content_area)
+
+    row_h = 54
+    content_height = max(0, len(modifiers) * row_h)
+    max_scroll = max(0, content_height - content_area.height + 10)
+    scroll_offset = max(0, min(scroll_offset, max_scroll))
+
+    clip = screen.get_clip()
+    screen.set_clip(content_area)
+    y = content_area.y + 8 - scroll_offset
+    for modifier in modifiers:
+        modifier_id = modifier['id']
+        is_unlocked = modifier_id in unlocked
+        row = pygame.Rect(content_area.x + 8, y, content_area.width - 16, 46)
+        base = (46, 54, 82) if is_unlocked else (44, 44, 44)
+        border = tier_colors.get(modifier.get('tier', 1), (140, 140, 140)) if is_unlocked else (90, 90, 90)
+        text_color = (230, 235, 245) if is_unlocked else (145, 145, 145)
+        pygame.draw.rect(screen, base, row, border_radius=6)
+        pygame.draw.rect(screen, border, row, 1, border_radius=6)
+        name = font.render(f"{modifier_id}. {modifier.get('name', '')}", True, text_color)
+        desc = pygame.font.SysFont("arial", 13).render(modifier.get('description', ''), True, text_color)
+        screen.blit(name, (row.x + 10, row.y + 6))
+        screen.blit(desc, (row.x + 10, row.y + 25))
+        y += row_h
+    screen.set_clip(clip)
+
+    if max_scroll > 0:
+        track = pygame.Rect(content_area.right - 8, content_area.y + 4, 4, content_area.height - 8)
+        pygame.draw.rect(screen, (62, 72, 98), track, border_radius=2)
+        thumb_h = max(24, int(track.height * (content_area.height / max(content_height, 1))))
+        thumb_y = track.y + int((scroll_offset / max_scroll) * (track.height - thumb_h))
+        thumb = pygame.Rect(track.x, thumb_y, track.width, thumb_h)
+        pygame.draw.rect(screen, (150, 185, 245), thumb, border_radius=2)
+
+    return {'back_rect': back_rect, 'max_scroll': max_scroll}
 
 def draw_pause(screen, font, guide_key='H', settings_key='O'):
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -356,16 +529,21 @@ def draw_victory(screen, font):
     screen.blit(victory_text, victory_rect)
     
     play_again_text = font.render("Play Again", True, WHITE)
-    play_again_rect = play_again_text.get_rect(center=(WIDTH // 2 - 100, HEIGHT // 2 + 50))
+    play_again_rect = play_again_text.get_rect(center=(WIDTH // 2 - 180, HEIGHT // 2 + 50))
     pygame.draw.rect(screen, (0, 150, 0), play_again_rect.inflate(20, 10), 2)
     screen.blit(play_again_text, play_again_rect)
+
+    menu_text = font.render("Main Menu", True, WHITE)
+    menu_rect = menu_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
+    pygame.draw.rect(screen, (120, 120, 160), menu_rect.inflate(20, 10), 2)
+    screen.blit(menu_text, menu_rect)
     
     exit_text = font.render("Exit", True, WHITE)
-    exit_rect = exit_text.get_rect(center=(WIDTH // 2 + 100, HEIGHT // 2 + 50))
+    exit_rect = exit_text.get_rect(center=(WIDTH // 2 + 180, HEIGHT // 2 + 50))
     pygame.draw.rect(screen, (150, 0, 0), exit_rect.inflate(20, 10), 2)
     screen.blit(exit_text, exit_rect)
     
-    return play_again_rect, exit_rect
+    return play_again_rect, menu_rect, exit_rect
 
 def draw_guide(screen, font, page, scroll_offset=0):
     guide_width = 700
@@ -389,7 +567,8 @@ def draw_guide(screen, font, page, scroll_offset=0):
             "[3] Enemies & Bosses",
             "[4] Game Mechanics",
             "[5] Strategy Tips",
-            "[6] Keybinds"
+            "[6] Keybinds",
+            "[7] Modifiers"
         ]
 
         y_offset = 80
@@ -404,6 +583,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
             ('mechanics', '4:Mechanics'),
             ('strategy', '5:Strategy'),
             ('keybinds', '6:Keybinds'),
+            ('modifiers', '7:Modifiers'),
         ]
 
         page_titles = {
@@ -413,6 +593,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
             'mechanics': "GAME MECHANICS",
             'strategy': "STRATEGY TIPS",
             'keybinds': "KEYBINDS",
+            'modifiers': "MODIFIERS",
         }
         title = font.render(page_titles.get(page, "GAME GUIDE"), True, (255, 255, 100))
         guide_surf.blit(title, (20, 40))
@@ -480,9 +661,9 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "FIRE TRAP - $42 (Place on path)",
                 "  Continuous damage in 3x3 area, strongest at center",
                 "  Path 1: Inferno ($80) -> Phoenix ($180)",
-                "    Inferno: Bigger aura, +DPS | Phoenix: Revive on destroy",
+                "    Inferno: Bigger aura, +DPS | Phoenix: Named tier (no extra effect yet)",
                 "  Path 2: Oil Slick ($90) -> Detonate ($200)",
-                "    Oil Slick: Burn spreads | Detonate: Explode on kill (40 AoE)",
+                "    Oil Slick: Burn spreads | Detonate: Reserved tier name",
                 "",
                 "SPIKE TRAP - $32 (Place on path)",
                 "  Damages enemies on tile every 1 second",
@@ -544,7 +725,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "  Selling returns 70% of build + upgrades spent",
                 "",
                 "MATCH END:",
-                "  Victory and Game Over both show Play Again / Exit buttons",
+                "  Victory and Game Over show Play Again / Main Menu / Exit buttons",
                 "",
                 "DAMAGE TYPES:",
                 "  Physical - Reduced by physical resistance",
@@ -560,7 +741,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
             ]
         elif page == 'keybinds':
             content = [
-                "GAMEPLAY KEYBINDS:",
+                "DEFAULT GAMEPLAY KEYBINDS:",
                 "  [1] Archer Tower build mode",
                 "  [2] Magic Tower build mode",
                 "  [3] Ice Tower build mode",
@@ -577,12 +758,40 @@ def draw_guide(screen, font, page, scroll_offset=0):
                 "  [C] Change game speed",
                 "  [ESC] Pause / Resume",
                 "  [O] Open settings (while paused)",
+                "  (All keybinds can be remapped in Settings)",
                 "",
                 "GUIDE CONTROLS (Paused):",
                 "  [H] Open guide",
-                "  [1-6] Open guide pages",
-                "  [UP]/[DOWN] or Wheel: Scroll",
+                "  [1-7] Open guide pages",
+                "  [UP]/[DOWN]: Scroll",
                 "  [BACKSPACE] Back to guide menu / close guide"
+            ]
+        elif page == 'modifiers':
+            content = [
+                "RUN MODIFIER SYSTEM:",
+                "  After selecting target wave, choose 1 of 3 modifier cards",
+                "  Modifier effects last for the whole run",
+                "  Unlock more modifiers through progression levels",
+                "",
+                "TIER 1 (Core Boosts):",
+                "  1. Sharpened Arrows  - Archer damage +12%",
+                "  2. Efficient Wiring  - Magic attack interval -10%",
+                "  3. Cold Front        - Slow decay rate -25%",
+                "  4. Prepared Defenses - Start with +60 gold",
+                "  5. Reinforced Triggers - Spike damage +20%",
+                "  6. Hotter Flames     - Burn DoT +20%",
+                "  7. Long Sightlines   - All tower range +8%",
+                "  8. Rapid Deployment  - First tower each wave costs -15%",
+                "  9. Focused Targeting - +10% damage vs Strongest targeting",
+                " 10. Efficient Salvage - Sell refund increases to 75%",
+                "",
+                "TIER 2 (Tradeoffs):",
+                " 11. Volatile Enemies  - Enemy speed +15%, rewards +25%",
+                " 12. Glass Cannons     - Tower damage +20%, tower range -15%",
+                " 13. Greedy Markets    - Interest cap +50, kill rewards -10%",
+                "",
+                "TIER 3 (High Impact):",
+                " 14. Overclocked Grid  - Towers attack 15% faster, interest halved",
             ]
         elif page == 'strategy':
             content = [
@@ -639,7 +848,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
 
     tiny_font = pygame.font.SysFont("arial", 12)
     if page == 'menu':
-        nav_text = tiny_font.render("[1-6] Select  |  [BACKSPACE] Close  |  [ESC] Resume", True, (180, 180, 180))
+        nav_text = tiny_font.render("[1-7] Select  |  [BACKSPACE] Close  |  [ESC] Resume", True, (180, 180, 180))
     else:
         nav_text = tiny_font.render("[Wheel/UP/DOWN] Scroll  |  [BACKSPACE] Menu  |  [ESC] Resume", True, (180, 180, 180))
     nav_rect = nav_text.get_rect(bottomright=(guide_width - 12, guide_height - 10))
@@ -647,7 +856,7 @@ def draw_guide(screen, font, page, scroll_offset=0):
 
     screen.blit(guide_surf, (guide_x, guide_y))
     return max_scroll
-def draw_upgrade_ui(screen, font, selected_structure, money):
+def draw_upgrade_ui(screen, font, selected_structure, money, refund_rate=0.70):
     if not selected_structure:
         return {'targeting_modes': {}, 'sell_rect': None}
 
@@ -732,7 +941,7 @@ def draw_upgrade_ui(screen, font, selected_structure, money):
 
     build_cost = getattr(selected_structure, 'build_cost', 0)
     upgrade_spent = getattr(selected_structure, 'upgrade_spent', 0)
-    sell_value = int((build_cost + upgrade_spent) * 0.75)
+    sell_value = int((build_cost + upgrade_spent) * max(0.0, float(refund_rate)))
     sell_btn_rect = pygame.Rect(10, panel_height - 34, panel_width - 20, 24)
     pygame.draw.rect(panel_surface, (70, 120, 80), sell_btn_rect, border_radius=4)
     pygame.draw.rect(panel_surface, (120, 190, 130), sell_btn_rect, 1, border_radius=4)

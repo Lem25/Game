@@ -159,7 +159,7 @@ def create_maze():
     
     return grid, spawn_points, goal
 
-def expand_paths(grid, towers, goal, spawn_points):
+def expand_paths(grid, towers, spawn_points):
     from constants import TILE
 
     if len(spawn_points) >= MAX_TOTAL_LANES:
@@ -240,5 +240,3 @@ def expand_paths(grid, towers, goal, spawn_points):
                 towers_to_remove.append(tower)
     
     return path, towers_to_remove, new_spawn
-
-GOAL_GRID = (GRID_W // 2, GRID_H // 2)

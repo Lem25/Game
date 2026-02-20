@@ -12,7 +12,6 @@ class Tower:
     def __init__(self, pos, ttype):
         self.pos = pos
         self.type = ttype
-        self.category = 'physical'
         self.dmg_type = ttype
         if ttype == 'physical':
             self.dmg = 20
@@ -26,7 +25,6 @@ class Tower:
             self.dmg = 120
             self.color = (90, 30, 30)
             self.name = "Executioner Tower"
-            self.category = 'physical'
             self.dmg_type = 'physical'
         else:
             self.dmg = 0
@@ -58,10 +56,6 @@ class Tower:
         self.executioner_mark = False
         self.executioner_percent = False
         self.executioner_pierce = False
-
-    def cycle_targeting_mode(self):
-        idx = self.TARGETING_MODES.index(self.targeting_mode)
-        self.targeting_mode = self.TARGETING_MODES[(idx + 1) % len(self.TARGETING_MODES)]
 
     def _targeting_key(self, enemy):
         if self.targeting_mode == 'strongest':

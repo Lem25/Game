@@ -17,6 +17,7 @@ _FALLBACK_NAMES = {
     'proj_arrow': 'arrow_proj',
     'proj_missile': 'missile_proj',
     'enemy_fighter': 'warrior_enemy',
+    'enemy_swarm': 'swarm_enemy',
     'enemy_mage': 'wizard_enemy',
     'enemy_assassin': 'assassin_enemy',
     'enemy_healer': 'healer_enemy',
